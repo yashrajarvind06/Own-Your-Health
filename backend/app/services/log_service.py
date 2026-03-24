@@ -7,13 +7,10 @@ class LogService:
     ALLOWED_INTENTS = {
         # Data Access Events
         "VIEW_REPORTS": "DATA_ACCESS",
-        "VIEW_EMERGENCY_PROFILE": "DATA_ACCESS",
-        
         # Authorization Events
         "ACCESS_REQUESTED": "AUTHORIZATION",
         "ACCESS_APPROVED": "AUTHORIZATION",
         "ACCESS_DENIED": "AUTHORIZATION",
-        "EMERGENCY_OVERRIDE": "AUTHORIZATION",
         "QR_VALIDATED": "AUTHORIZATION",
         
         # System/Other (Strictly controlled)

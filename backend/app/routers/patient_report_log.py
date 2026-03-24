@@ -87,7 +87,7 @@ def get_report_access_log(
         logs.append({
             "report_name": report.filename, # User friendly name
             "accessed_by": doctor.display_name or f"Doctor #{doctor.id}",
-            "access_type": session.created_via, # CONSENT or EMERGENCY_OVERRIDE
+            "access_type": "CONSENT",
             "session_id": session.id,
             "granted_at": ra.granted_at,
             "accessed_at": viewed_at if viewed_at else ra.granted_at, # Default to grant time if not viewed
@@ -97,36 +97,6 @@ def get_report_access_log(
             "is_active": not is_expired and not ra.revoked_at
         })
         
-    # 3. Inject Emergency View Logs (as "Virtual Reports")
-    # Fetch standalone emergency views
-    emerg_logs = db.query(AuditLog).filter(
-        AuditLog.patient_id == current_user.id,
-        AuditLog.details.like("%VIEW_EMERGENCY_PROFILE%")
-    ).order_by(desc(AuditLog.created_at)).limit(20).all()
-
-    for el in emerg_logs:
-        # Resolve doctor name
-        d_name ="Unknown Doctor"
-        if el.actor_user:
-            d_name = el.actor_user.display_name
-        else:
-             # Try fallback 
-             doc = db.query(User).filter(User.id == el.actor_user_id).first()
-             if doc: d_name = doc.display_name
-             else: d_name = f"Doctor #{el.actor_user_id}"
-
-        logs.append({
-            "report_name": "Emergency Profile",
-            "accessed_by": d_name,
-            "access_type": "EMERGENCY" if "Emergency: True" in (el.details or "") else "NORMAL", # Heuristic if detail contains mode
-            "session_id": 0, # No specific session for this virtual entry
-            "granted_at": el.created_at,
-            "accessed_at": el.created_at,
-            "expires_at": None,
-            "status": "VIEWED",
-            "status_label": "Emergency Info Accessed",
-            "is_active": False 
-        })
 
     # Re-sort combined list by time
     logs.sort(key=lambda x: x["granted_at"], reverse=True)

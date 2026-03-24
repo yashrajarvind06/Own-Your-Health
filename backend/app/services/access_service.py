@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from app.models import AccessRequest, ActiveAccessSession, QRToken, AuditLog, User, EmergencyAccess
+from app.models import AccessRequest, ActiveAccessSession, QRToken, AuditLog, User
 from app.enums import AccessDenyReason, DecisionActor
 
 class AccessService:
@@ -170,20 +170,7 @@ class AccessService:
         """
         now = datetime.utcnow()
 
-        # 1. EMERGENCY OVERRIDE (Highest Priority - Safety First)
-        emergency_access = self.db.query(EmergencyAccess).filter(
-            EmergencyAccess.doctor_id == doctor_id,
-            EmergencyAccess.patient_id == patient_id,
-            EmergencyAccess.expires_at > now
-        ).first()
 
-        if emergency_access:
-            remaining = int((emergency_access.expires_at - now).total_seconds())
-            return {
-                "status": "EMERGENCY",
-                "session": None,
-                "remaining_seconds": remaining
-            }
 
         # 2. ACTIVE SESSION (Standard Grant)
         # Priority: If a valid session exists, it supersedes previous denials.
@@ -312,29 +299,7 @@ class AccessService:
         now = datetime.utcnow()
         output = []
 
-        # 1. EMERGENCY OVERRIDES (High Priority)
-        # We need to import User again because it's used in join
-        emergency_sessions = self.db.query(EmergencyAccess, User).outerjoin(
-            User, EmergencyAccess.patient_id == User.id
-        ).filter(
-            EmergencyAccess.doctor_id == doctor_id,
-            EmergencyAccess.expires_at > now
-        ).all()
 
-        for session, patient in emergency_sessions:
-            remaining = int((session.expires_at - now).total_seconds())
-            if patient and patient.email:
-                p_name = patient.email
-            else:
-                p_name = f"Patient {session.patient_id}"
-
-            output.append({
-                "patient_id": session.patient_id,
-                "patient_name": p_name,
-                "expires_at": session.expires_at,
-                "remaining_seconds": remaining,
-                "access_mode": "EMERGENCY" # Explicit Mode
-            })
 
         # 2. NORMAL SESSIONS
         normal_sessions = self.db.query(ActiveAccessSession, User).outerjoin(
@@ -346,10 +311,6 @@ class AccessService:
         ).order_by(ActiveAccessSession.expires_at.asc()).all()
 
         for session, patient in normal_sessions:
-            # Dedup: If Emergency exists, skip Normal
-            existing = next((x for x in output if x["patient_id"] == session.patient_id), None)
-            if existing:
-                continue 
 
             remaining = int((session.expires_at - now).total_seconds())
             if remaining < 0:
@@ -374,26 +335,7 @@ class AccessService:
         now = datetime.utcnow()
         output = []
 
-        # 1. EMERGENCY OVERRIDES
-        emergency_sessions = self.db.query(EmergencyAccess, User).outerjoin(
-            User, EmergencyAccess.doctor_id == User.id
-        ).filter(
-            EmergencyAccess.patient_id == patient_id,
-            EmergencyAccess.expires_at > now
-        ).all()
 
-        for session, doctor in emergency_sessions:
-            remaining = int((session.expires_at - now).total_seconds())
-            d_name = doctor.display_name if doctor else f"Doctor {session.doctor_id}"
-            
-            output.append({
-                "doctor_id": session.doctor_id,
-                "doctor_name": d_name,
-                "access_mode": "EMERGENCY",
-                "expires_at": session.expires_at,
-                "remaining_seconds": remaining,
-                "revocable": False
-            })
 
         # 2. NORMAL SESSIONS
         normal_sessions = self.db.query(ActiveAccessSession, User).outerjoin(
@@ -405,9 +347,6 @@ class AccessService:
         ).all()
 
         for session, doctor in normal_sessions:
-            # Dedup
-            existing = next((x for x in output if x["doctor_id"] == session.doctor_id), None)
-            if existing: continue
 
             remaining = int((session.expires_at - now).total_seconds())
             d_name = doctor.display_name if doctor else f"Doctor {session.doctor_id}"

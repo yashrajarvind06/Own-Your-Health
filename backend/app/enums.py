@@ -19,8 +19,6 @@ class RevocationSource(str, Enum):
 
 class AccessMode(str, Enum):
     NORMAL = "NORMAL"
-    EMERGENCY = "EMERGENCY"
 
 class AccessContext(str, Enum):
     NORMAL = "NORMAL"
-    EMERGENCY_CONTEXT = "EMERGENCY_CONTEXT"

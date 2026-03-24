@@ -153,11 +153,6 @@ def access_reports(
     ).first()
 
     if not session:
-        # Check for EMERGENCY override
-        # Emergency Access logic currently assumes FULL access?
-        # User prompt: "Emergency override never unlocks reports." -> STRICT BLOCK if no session.
-        # But wait, logic says "if session.access_mode != NORMAL return False"
-        # So we strictly require a session here.
         raise HTTPException(status_code=403, detail="No active session. Please request access.")
 
     # FINE-GRAINED CHECK

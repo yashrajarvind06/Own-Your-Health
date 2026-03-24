@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(qr.router, prefix="/qr", tags=["qr"])
     app.include_router(access.router, prefix="/access", tags=["access"])
     app.include_router(emergency.router, prefix="/emergency", tags=["emergency"])
+
     app.include_router(reports.router, prefix="/reports", tags=["reports"])
     app.include_router(logs.router, prefix="/logs", tags=["logs"])
     app.include_router(users.router, prefix="/user", tags=["user"])

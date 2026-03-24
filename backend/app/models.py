@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Text, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from .database import Base
 from sqlalchemy import UniqueConstraint
 
@@ -103,25 +103,7 @@ class AccessLog(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 
-class EmergencyProfile(Base):
-    __tablename__ = "emergency_profiles"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True, nullable=False)
-    blood_group = Column(String(10), nullable=True)
-    allergies = Column(Text, nullable=True)
-    chronic_conditions = Column(Text, nullable=True)
-    past_surgeries = Column(Text, nullable=True) # Added per user request
-    emergency_contacts = Column(JSON, nullable=False) # List of {name, phone, relation}
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-class EmergencyAccess(Base):
-    __tablename__ = "emergency_access"
-    id = Column(Integer, primary_key=True, index=True)
-    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
 
 class ReportAccess(Base):
     __tablename__ = "report_access"
@@ -154,3 +136,25 @@ class ReportAccessRequest(Base):
     __table_args__ = (
         UniqueConstraint('session_id', 'report_id', name='uq_request_session_report'),
     )
+
+class EmergencyToken(Base):
+    __tablename__ = "emergency_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String(255), nullable=False, index=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime, nullable=True)
+
+    patient = relationship("User", foreign_keys=[patient_id])
+
+class EmergencyAccessLog(Base):
+    __tablename__ = "emergency_access_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    token_id = Column(Integer, ForeignKey("emergency_tokens.id"), nullable=False)
+    scanned_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    ip_address = Column(String(50), nullable=True)
+    device_type = Column(String(255), nullable=True)
+    approx_location = Column(String(255), nullable=True)
+
+    token = relationship("EmergencyToken")

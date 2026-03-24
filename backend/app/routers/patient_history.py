@@ -6,7 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from ..database import get_db
-from ..models import User, ActiveAccessSession, EmergencyAccess, AuditLog, ReportAccess, MedicalReport, ReportAccessRequest
+from ..models import User, ActiveAccessSession, AuditLog, ReportAccess, MedicalReport, ReportAccessRequest
 from ..auth import get_current_user
 
 router = APIRouter()
@@ -133,32 +133,6 @@ def get_access_history(
             "reports": reports_list
         })
 
-    # 2. EMERGENCY SESSIONS
-    # ---------------------
-    e_query = db.query(EmergencyAccess).filter(EmergencyAccess.patient_id == user.id)
-    if not include_expired:
-        e_query = e_query.filter(EmergencyAccess.expires_at > now)
-    
-    emerg_sessions = e_query.order_by(desc(EmergencyAccess.created_at)).limit(limit).offset(offset).all()
-
-    for e in emerg_sessions:
-         status = "ACTIVE"
-         if e.expires_at < now:
-             status = "EXPIRED"
-         
-         doc = db.query(User).filter(User.id == e.doctor_id).first()
-         doc_name = doc.display_name if doc else f"Doctor {e.doctor_id}"
-
-         history_items.append({
-            "session_id": e.id, # Emergency ID
-            "doctor_name": doc_name,
-            "access_type": "EMERGENCY",
-            "reason": "Emergency Override",
-            "start_time": e.created_at,
-            "end_time": e.expires_at,
-            "status": status,
-            "reports": [] # Emergency currently blocks reports by default
-        })
 
     # Sort Combined List
     history_items.sort(key=lambda x: x["start_time"], reverse=True)
