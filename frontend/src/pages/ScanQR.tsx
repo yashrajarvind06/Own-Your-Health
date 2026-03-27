@@ -6,6 +6,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card } from "../components/ui/Card";
 import DoctorReportList from "../components/DoctorReportList";
+import { notifyAccessRequested, notifyEmergencyOverride } from "../services/notifications";
 
 type EmergencyProfile = {
   blood_group?: string;
@@ -83,6 +84,9 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
       setShowReasonModal(false);
       setStatus("pending");
 
+      // TRIGGER 1: Notify — access request sent
+      if (patientId) notifyAccessRequested(patientId);
+
       // Poll for approval
       const qrInfo = await api(`/access/session/status?patient_id=${patientId}`);
       if (qrInfo.status === "GRANTED" || qrInfo.status === "granted") {
@@ -121,6 +125,9 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
       });
       setEmergencyProfile(res);
       setStatus("emergency");
+
+      // TRIGGER 3: Notify — emergency override used
+      if (patientId) notifyEmergencyOverride(patientId);
     } catch (e: any) { setError(e.message); }
   };
 

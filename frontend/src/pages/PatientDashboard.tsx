@@ -6,8 +6,20 @@ import { Card } from "../components/ui/Card";
 import { Link } from "react-router-dom";
 import { ActiveAccessPanel } from "../components/ActiveAccessPanel";
 import { ReportSelectionModal } from "../components/ReportSelectionModal";
-
 import { useAuth } from "../context/AuthContext";
+import { notifyAccessApproved, notifyAccessDenied, initNotifications } from "../services/notifications";
+
+const generateNonce = () => {
+  if (typeof crypto !== "undefined") {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    if (crypto.getRandomValues) {
+      const array = new Uint32Array(4);
+      crypto.getRandomValues(array);
+      return Array.from(array).join("-");
+    }
+  }
+  return Math.random().toString(36).substring(2) + Date.now();
+};
 
 export default function PatientDashboard() {
   const { user } = useAuth();
@@ -25,6 +37,8 @@ export default function PatientDashboard() {
     if (!user) return;
     pollPending();
     checkActiveQR();
+    // Initialise FCM notifications once per session
+    initNotifications();
     const id = setInterval(pollPending, 3000);
     return () => clearInterval(id);
   }, [user]);
@@ -118,7 +132,13 @@ export default function PatientDashboard() {
   const genQR = async () => {
     try {
       setError(null);
-      const res = await api("/qr/generate", { method: "POST" });
+      const res = await api("/qr/generate", { 
+        method: "POST",
+        body: JSON.stringify({ 
+          nonce: generateNonce(),
+          timestamp: Date.now() 
+        })
+      });
       const token = res.token;
 
       const details = await api(`/qr/expiry?token=${token}`);
@@ -170,6 +190,9 @@ export default function PatientDashboard() {
 
       setApprovingReqId(null); // Close Modal
       await pollPending(); // Refresh
+
+      // TRIGGER 2a: Notify — access approved
+      notifyAccessApproved(id);
     } catch (err: any) {
       console.error("Approve Error:", err);
       setError("Failed to approve: " + (err.message || "Unknown error"));
@@ -185,6 +208,9 @@ export default function PatientDashboard() {
       setError(null);
       await api(`/access/deny?request_id=${id}`, { method: "POST" });
       await pollPending();
+
+      // TRIGGER 2b: Notify — access denied
+      notifyAccessDenied(id);
     } catch (err: any) {
       console.error("Deny Error:", err);
       setError("Failed to deny: " + (err.message || "Unknown error"));

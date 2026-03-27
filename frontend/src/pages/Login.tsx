@@ -79,6 +79,12 @@ export default function Login() {
               Create one
             </Link>
           </p>
+
+          <p className="text-center text-sm text-gray-500 mt-2">
+            <Link to="/login/phone" className="text-indigo-600 hover:text-indigo-500 font-medium inline-flex items-center gap-1">
+              <span>📱</span> Login with Phone OTP
+            </Link>
+          </p>
         </form>
       </Card>
     </div>

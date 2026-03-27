@@ -7,6 +7,7 @@ import Register from "./pages/Register";
 import PatientDashboard from "./pages/PatientDashboard";
 import DoctorDashboard from "./pages/DoctorDashboard";
 import PatientHistory from "./pages/PatientHistory";
+import PhoneLogin from "./pages/PhoneLogin";
 
 // ...
 
@@ -101,6 +102,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/login/phone" element={<PhoneLogin />} />
           <Route path="/register" element={<Register />} />
 
           {/* Protected Role-Based Routes */}
