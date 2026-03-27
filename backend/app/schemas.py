@@ -48,30 +48,4 @@ class UserProfileResponse(BaseModel):
 class UpdateUserProfileRequest(BaseModel):
     display_name: str
 
-class EmergencyContact(BaseModel):
-    name: str
-    phone: str
-    relation: Optional[str] = None
 
-class EmergencyProfileBase(BaseModel):
-    blood_group: str
-    allergies: Optional[str] = None
-    chronic_conditions: Optional[str] = None
-    past_surgeries: Optional[str] = None
-    emergency_contacts: list[EmergencyContact]
-
-class EmergencyProfileCreate(EmergencyProfileBase):
-    pass
-
-class EmergencyProfileUpdate(BaseModel):
-    blood_group: Optional[str] = None
-    allergies: Optional[str] = None
-    chronic_conditions: Optional[str] = None
-    past_surgeries: Optional[str] = None
-    emergency_contacts: Optional[list[EmergencyContact]] = None
-
-class EmergencyProfileResponse(EmergencyProfileBase):
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
