@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
+import { useNavigate } from "react-router-dom";
 
 type IncomingRequest = {
   id: number;
@@ -12,6 +13,7 @@ type IncomingRequest = {
 };
 
 export default function DoctorNotifications({ onActionComplete }: { onActionComplete?: () => void }) {
+  const navigate = useNavigate();
   const [requests, setRequests] = useState<IncomingRequest[]>([]);
   const [loadingRequestId, setLoadingRequestId] = useState<number | null>(null);
 
@@ -75,6 +77,13 @@ export default function DoctorNotifications({ onActionComplete }: { onActionComp
                 </div>
               </div>
               <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => navigate(`/doctor?patientId=${request.patient_id}`)}
+                >
+                  More About Patient
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"

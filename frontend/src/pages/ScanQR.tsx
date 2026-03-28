@@ -44,7 +44,6 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
       setPatientId(initialPatientId);
     }
   }, [initialPatientId]);
-
   const [emergencyProfile, setEmergencyProfile] = useState<EmergencyProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -320,7 +319,9 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
               {patientId && (
                 <Button size="sm" variant="secondary" onClick={async () => {
                   try {
-                    const res = await api(`/emergency/profile?patient_id=${patientId}`, { headers: { "X-Access-Intent": "EMERGENCY_VIEW" } });
+                    const res = await api(`/emergency/profile?patient_id=${patientId}`, {
+                      headers: { "X-Access-Intent": "EMERGENCY_VIEW" }
+                    });
                     setEmergencyProfile(res);
                   } catch (e: any) { setError(e.message); }
                 }} title="View emergency info">

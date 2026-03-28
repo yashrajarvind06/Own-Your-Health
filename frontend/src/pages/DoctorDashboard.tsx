@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { api, apiForm } from "../api";
+import { useSearchParams } from "react-router-dom";
 
 function LockedFeatureCard({
   children,
@@ -35,6 +36,7 @@ function LockedFeatureCard({
 
 export default function DoctorDashboard() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [patientId, setPatientId] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const isVerifiedDoctor = Boolean(user?.verified);
@@ -52,6 +54,17 @@ export default function DoctorDashboard() {
   const handleSessionEnd = () => {
     setPatientId(null);
   };
+
+  useEffect(() => {
+    const param = searchParams.get("patientId");
+    if (!param) {
+      return;
+    }
+    const parsed = Number(param);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      setPatientId(parsed);
+    }
+  }, [searchParams]);
 
   const loadPatients = async () => {
     try {
