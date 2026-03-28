@@ -4,6 +4,7 @@ import { api } from "../api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card } from "../components/ui/Card";
+import { useAuth } from "../context/AuthContext";
 
 export default function Register() {
   const [displayName, setDisplayName] = useState("");
@@ -13,22 +14,30 @@ export default function Register() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
     try {
       const res = await api("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ email, password, role, display_name: displayName }),
+        body: JSON.stringify({
+          email,
+          password,
+          display_name: displayName.trim() || null,
+          role,
+        }),
       });
-      localStorage.setItem("token", res.access_token);
-      localStorage.setItem("role", res.role);
-      localStorage.setItem("user_id", String(res.user_id));
 
-      // Dispatch custom event to update Layout
-      window.dispatchEvent(new Event("auth-change"));
+      login(res.access_token, {
+        id: res.user_id,
+        email,
+        role: res.role,
+        display_name: displayName.trim() || null,
+      });
 
       navigate(res.role === "patient" ? "/patient" : "/doctor");
     } catch (err: any) {
@@ -85,22 +94,22 @@ export default function Register() {
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                className={`flex items-center justify-center px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${role === 'patient' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                onClick={() => setRole('patient')}
+                className={`flex items-center justify-center px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${role === "patient" ? "bg-blue-50 border-blue-500 text-blue-700" : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                onClick={() => setRole("patient")}
               >
                 Patient
               </button>
               <button
                 type="button"
-                className={`flex items-center justify-center px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${role === 'doctor' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                onClick={() => setRole('doctor')}
+                className={`flex items-center justify-center px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${role === "doctor" ? "bg-blue-50 border-blue-500 text-blue-700" : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                onClick={() => setRole("doctor")}
               >
                 Doctor
               </button>
               <button
                 type="button"
-                className={`flex items-center justify-center px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${role === 'lab' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-                onClick={() => setRole('lab')}
+                className={`flex items-center justify-center px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${role === "lab" ? "bg-blue-50 border-blue-500 text-blue-700" : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                onClick={() => setRole("lab")}
               >
                 Lab
               </button>

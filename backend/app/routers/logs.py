@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.deps import get_db, require_role
 from ..models import AuditLog
 from app.models import User
+from app.auth import get_active_profile_user_id
 from ..services.log_service import LogService
 
 router = APIRouter()
@@ -15,7 +16,7 @@ def get_patient_logs(
     db: Session = Depends(get_db),
 ):
     log_service = LogService(db)
-    logs = log_service.get_patient_logs(patient_id=user.id)
+    logs = log_service.get_patient_logs(patient_id=get_active_profile_user_id(user))
     return [_map_log(log, db) for log in logs]
 
 

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .database import Base, engine, get_db
 from sqlalchemy.orm import Session
 from fastapi import Depends
-from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access
+from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, family, profile_switch
 
 def create_app() -> FastAPI:
     app = FastAPI(
@@ -16,32 +16,42 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json"
     )
 
+    # --- AUTO MIGRATION START ---
     try:
-        Base.metadata.create_all(bind=engine)
-        
-        # --- AUTO MIGRATION START ---
-        # Force add the column if it's missing (Safe for restart)
-        try:
-            from sqlalchemy import text
-            with engine.connect() as conn:
-                # 1. Users Display Name
-                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)"))
-                # 2. Active Access Sessions Created Via
-                conn.execute(text("ALTER TABLE active_access_sessions ADD COLUMN IF NOT EXISTS created_via VARCHAR(50) DEFAULT 'CONSENT' NOT NULL"))
+        from sqlalchemy import text
+        statements = [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)",
+            "ALTER TABLE active_access_sessions ADD COLUMN IF NOT EXISTS created_via VARCHAR(50) DEFAULT 'CONSENT' NOT NULL",
+            "ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS access_reason VARCHAR(50) DEFAULT 'UNKNOWN'",
+            "ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS reason_note TEXT",
+            "ALTER TABLE family_members ADD COLUMN phone_number VARCHAR(50) DEFAULT ''",
+            "ALTER TABLE family_members ADD COLUMN linked_user_id INTEGER",
+            """
+            CREATE TABLE IF NOT EXISTS family_account_access_links_v1 (
+                id SERIAL PRIMARY KEY,
+                owner_user_id INTEGER NOT NULL REFERENCES users(id),
+                target_user_id INTEGER NOT NULL REFERENCES users(id),
+                member_name VARCHAR(255) NOT NULL,
+                relationship VARCHAR(100) NOT NULL,
+                member_email VARCHAR(255) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+                verified_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+            )
+            """,
+        ]
 
-                # 3. Access Request Reason (Phase 2)
-                conn.execute(text("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS access_reason VARCHAR(50) DEFAULT 'UNKNOWN'"))
-                conn.execute(text("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS reason_note TEXT"))
-                
-                conn.commit()
-                print("SUCCESS: schema migrations applied.")
-        except Exception as mig_err:
-             # Ignore if it fails (e.g. generic error), but print it
-            print(f"WARNING: Migration step failed (might already exist): {mig_err}")
-        # --- AUTO MIGRATION END ---
+        for statement in statements:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(statement))
+            except Exception:
+                pass
 
-    except Exception as e:
-        print(f"Warning: Database tables may already exist. Startup continued. Error: {e}")
+        print("SUCCESS: schema migrations applied.")
+    except Exception as mig_err:
+        print(f"WARNING: Migration step failed: {mig_err}")
+    # --- AUTO MIGRATION END ---
 
     app.add_middleware(
         CORSMiddleware,
@@ -66,6 +76,8 @@ def create_app() -> FastAPI:
     app.include_router(patient_history.router, prefix="/patient/access", tags=["patient_history"])
     app.include_router(patient_report_log.router, prefix="/patient/reports", tags=["patient_report_log"])
     app.include_router(report_access.router, prefix="/access/reports", tags=["report_access"])
+    app.include_router(family.router, prefix="/family", tags=["family"])
+    app.include_router(profile_switch.router)
     
 
 

@@ -2,13 +2,11 @@ const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 export async function api(path: string, init?: RequestInit) {
   const token = localStorage.getItem("token");
-  console.log("DEBUG API: Token for", path, "is", token ? "Present" : "MISSING");
   const headers = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(init?.headers || {}),
   };
-  console.log("DEBUG API: Fetching", path, "Headers:", JSON.stringify(headers));
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
 
   if (res.status === 401) {
@@ -40,4 +38,33 @@ export async function apiForm(path: string, form: FormData) {
 
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+export async function addFamilyMember(data: { member_name: string; relationship: string; email: string; password: string }) {
+  const resData = await api("/family/add-member", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  if (!resData.success) throw new Error(resData.error || "Failed to add family member");
+  return resData.data;
+}
+
+export async function listFamilyLinks() {
+  const resData = await api("/family/list");
+  if (!resData.success) throw new Error(resData.error || "Failed to list family members");
+  return resData.data;
+}
+
+export async function listAccessedBy() {
+  const resData = await api("/family/accessed-by");
+  if (!resData.success) throw new Error(resData.error || "Failed to load access information");
+  return resData.data;
+}
+
+export async function revokeFamilyLink(linkId: number) {
+  const resData = await api(`/family/${linkId}`, {
+    method: "DELETE",
+  });
+  if (!resData.success) throw new Error(resData.error || "Failed to revoke family link");
+  return resData.data;
 }

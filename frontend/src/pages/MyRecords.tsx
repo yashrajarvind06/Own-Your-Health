@@ -9,7 +9,7 @@ type Report = {
     id: number;
     filename: string;
     created_at: string;
-    presigned_url: string;
+    presigned_url: string | null;
     blockchain_tx?: string;
     report_id: string; // The user-entered ID/Name
 };
@@ -231,28 +231,43 @@ const ReportCard = ({
                         Manage Access
                     </Button>
                 ) : (
-                    <a
-                        href={report.presigned_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex-1"
-                    >
-                        <Button variant="outline" className="w-full text-xs h-9 bg-white hover:bg-gray-50 transition-colors">
-                            View File
+                    report.presigned_url ? (
+                        <a
+                            href={report.presigned_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex-1"
+                        >
+                            <Button variant="outline" className="w-full text-xs h-9 bg-white hover:bg-gray-50 transition-colors">
+                                View File
+                            </Button>
+                        </a>
+                    ) : (
+                        <Button variant="outline" className="flex-1 w-full text-xs h-9 bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed" disabled>
+                            File Missing
                         </Button>
-                    </a>
+                    )
                 )}
 
-                <a
-                    href={report.presigned_url}
-                    download
-                    target="_blank"
-                    rel="noreferrer"
-                    className="h-9 w-9 flex items-center justify-center border rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors bg-white"
-                    title="Download"
-                >
-                    <Download size={16} />
-                </a>
+                {report.presigned_url ? (
+                    <a
+                        href={report.presigned_url}
+                        download
+                        target="_blank"
+                        rel="noreferrer"
+                        className="h-9 w-9 flex items-center justify-center border rounded-lg text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors bg-white"
+                        title="Download"
+                    >
+                        <Download size={16} />
+                    </a>
+                ) : (
+                    <div
+                        className="h-9 w-9 flex items-center justify-center border rounded-lg text-gray-300 bg-gray-100 cursor-not-allowed"
+                        title="File not available"
+                    >
+                        <Download size={16} />
+                    </div>
+                )}
             </div>
         </div>
     );

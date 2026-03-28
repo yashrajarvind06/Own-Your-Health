@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from ..models import User, ActiveAccessSession, AuditLog, ReportAccess, MedicalReport, ReportAccessRequest
-from ..auth import get_current_user
+from ..auth import get_current_user, get_active_profile_user_id
 
 router = APIRouter()
 
@@ -40,13 +40,14 @@ def get_access_history(
     """
     if user.role != "patient":
         raise HTTPException(status_code=403, detail="Only patients can view access history.")
+    patient_id = get_active_profile_user_id(user)
     
     history_items = []
     now = datetime.utcnow()
 
     # 1. NORMAL SESSIONS (Active + Revoked + Expired)
     # ------------------------------------------------
-    query = db.query(ActiveAccessSession).filter(ActiveAccessSession.patient_id == user.id)
+    query = db.query(ActiveAccessSession).filter(ActiveAccessSession.patient_id == patient_id)
     if not include_expired:
          query = query.filter(ActiveAccessSession.expires_at > now)
     
@@ -108,7 +109,7 @@ def get_access_history(
         # Fetch Reason from Audit Log (Heuristic)
         # Look for ACCESS_APPROVED event around created_at
         audit = db.query(AuditLog).filter(
-            AuditLog.patient_id == user.id,
+            AuditLog.patient_id == patient_id,
             AuditLog.actor_user_id == user.id, # Patient approves
             AuditLog.details.like("%Event: ACCESS_APPROVED%"),
             AuditLog.details.like(f"%Doctor: {s.doctor_id}%")

@@ -26,6 +26,14 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
 
+
+def get_active_profile_user_id(user: User) -> int:
+    return user.id
+
+
+def get_actor_user_id(user: User) -> int:
+    return getattr(user, "_actor_user_id", user.id)
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
@@ -33,8 +41,21 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except Exception as e:
         print(f"AUTH DEBUG: Token validation failed: {e}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {str(e)}")
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-    return user
 
+    active_user = db.query(User).filter(User.id == user_id).first()
+    if not active_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    actor_user_id = payload.get("actor_user_id")
+    if actor_user_id is None:
+        actor_user_id = user_id
+    try:
+        actor_user_id = int(actor_user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid actor user id")
+
+    active_user._actor_user_id = actor_user_id
+    active_user._family_link_id = payload.get("family_link_id")
+    active_user._switch_mode = payload.get("switch_mode", "self")
+
+    return active_user

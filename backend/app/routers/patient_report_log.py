@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from ..database import get_db
 from ..models import User, ActiveAccessSession, ReportAccess, MedicalReport, AuditLog
-from ..auth import get_current_user
+from ..auth import get_current_user, get_active_profile_user_id
 
 router = APIRouter()
 
@@ -19,6 +19,7 @@ def get_report_access_log(
 ):
     if current_user.role != "patient":
         return []
+    patient_id = get_active_profile_user_id(current_user)
 
     # 1. Fetch Report Grants (ReportAccess) joined with Session, Report, Doctor
     # This gives us the "Potential" access (Privacy rules)
@@ -27,7 +28,7 @@ def get_report_access_log(
         .join(ActiveAccessSession, ReportAccess.session_id == ActiveAccessSession.id)
         .join(MedicalReport, ReportAccess.report_id == MedicalReport.id)
         .join(User, ActiveAccessSession.doctor_id == User.id)
-        .filter(ActiveAccessSession.patient_id == current_user.id)
+        .filter(ActiveAccessSession.patient_id == patient_id)
         .order_by(desc(ReportAccess.granted_at))
         .limit(limit)
         .offset(offset)
@@ -42,7 +43,7 @@ def get_report_access_log(
     # This is an optimization. For strict accuracy we might query per session, but fetching batch is better.
     # We'll fetch last N audit logs.
     audit_logs = db.query(AuditLog).filter(
-        AuditLog.patient_id == current_user.id,
+        AuditLog.patient_id == patient_id,
         or_(AuditLog.details.like("%VIEWED_REPORT%"), AuditLog.details.like("%VIEW_REPORTS%"))
     ).order_by(desc(AuditLog.created_at)).limit(100).all()
 

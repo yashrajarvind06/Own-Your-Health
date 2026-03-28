@@ -7,27 +7,20 @@ import Register from "./pages/Register";
 import PatientDashboard from "./pages/PatientDashboard";
 import DoctorDashboard from "./pages/DoctorDashboard";
 import PatientHistory from "./pages/PatientHistory";
-
-// ...
-
-<Route path="/patient/history" element={
-  <ProtectedRoute allowedRoles={['patient']}>
-    <PatientHistory />
-  </ProtectedRoute>
-} />
+import FamilyPage from "./pages/FamilyPage";
 import DoctorAccessHistory from "./pages/DoctorAccessHistory";
 import ProfilePage from "./pages/ProfilePage";
 import EmergencyProfile from "./pages/EmergencyProfile";
 import MyRecords from "./pages/MyRecords";
+import ProfileSwitch from "./pages/ProfileSwitch";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Button } from "./components/ui/Button";
-
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function Landing() {
   const { user, loading } = useAuth();
 
-  if (loading) return <div>Loading...</div>; // Or a simple spinner
+  if (loading) return <div>Loading...</div>;
 
   if (user) {
     if (user.role === "patient") return <Navigate to="/patient" />;
@@ -36,9 +29,7 @@ function Landing() {
 
   return (
     <div className="flex flex-col min-h-screen bg-white">
-      {/* Hero Section */}
       <div className="relative pt-20 pb-16 md:pt-32 md:pb-24 overflow-hidden bg-gradient-to-b from-blue-50/50 via-white to-white">
-        {/* Abstract Background Shape */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl pointer-events-none z-0">
           <div className="absolute top-20 left-10 w-72 h-72 bg-blue-100 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
           <div className="absolute top-20 right-10 w-72 h-72 bg-purple-100 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
@@ -88,8 +79,6 @@ function Landing() {
       <div className="relative z-10 w-full">
         <HowItWorks />
       </div>
-
-      {/* Trust Footer/Banner removed to avoid duplication */}
     </div>
   );
 }
@@ -103,44 +92,81 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
 
-          {/* Protected Role-Based Routes */}
-          <Route path="/patient" element={
-            <ProtectedRoute allowedRoles={['patient']}>
-              <PatientDashboard />
-            </ProtectedRoute>
-          } />
+          <Route
+            path="/patient"
+            element={
+              <ProtectedRoute allowedRoles={["patient"]}>
+                <PatientDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/patient/history"
+            element={
+              <ProtectedRoute allowedRoles={["patient"]}>
+                <PatientHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/patient/emergency-profile"
+            element={
+              <ProtectedRoute allowedRoles={["patient"]}>
+                <EmergencyProfile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/patient/records"
+            element={
+              <ProtectedRoute allowedRoles={["patient"]}>
+                <MyRecords />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/patient/switch-profile"
+            element={
+              <ProtectedRoute allowedRoles={["patient"]}>
+                <ProfileSwitch />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/family"
+            element={
+              <ProtectedRoute allowedRoles={["patient"]}>
+                <FamilyPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/doctor"
+            element={
+              <ProtectedRoute allowedRoles={["doctor"]}>
+                <DoctorDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/doctor/logs"
+            element={
+              <ProtectedRoute allowedRoles={["doctor"]}>
+                <DoctorAccessHistory />
+              </ProtectedRoute>
+            }
+          />
 
-
-          <Route path="/patient/history" element={
-            <ProtectedRoute allowedRoles={['patient']}>
-              <PatientHistory />
-            </ProtectedRoute>
-          } />
-          <Route path="/patient/emergency-profile" element={
-            <ProtectedRoute allowedRoles={['patient']}>
-              <EmergencyProfile />
-            </ProtectedRoute>
-          } />
-          <Route path="/patient/records" element={
-            <ProtectedRoute allowedRoles={['patient']}>
-              <MyRecords />
-            </ProtectedRoute>
-          } />
-          <Route path="/doctor" element={
-            <ProtectedRoute allowedRoles={['doctor']}>
-              <DoctorDashboard />
-            </ProtectedRoute>
-          } />
-          <Route path="/doctor/logs" element={
-            <ProtectedRoute allowedRoles={['doctor']}>
-              <DoctorAccessHistory />
-            </ProtectedRoute>
-          } />
-
-          <Route path="/profile" element={<ProfilePage />} />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </Layout>
     </AuthProvider>
   );
 }
-

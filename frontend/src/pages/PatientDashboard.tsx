@@ -8,6 +8,14 @@ import { ActiveAccessPanel } from "../components/ActiveAccessPanel";
 import { ReportSelectionModal } from "../components/ReportSelectionModal";
 
 import { useAuth } from "../context/AuthContext";
+import { listAccessedBy } from "../api";
+
+interface IncomingAccessLink {
+  id: number;
+  owner_email?: string | null;
+  owner_name?: string | null;
+  relationship: string;
+}
 
 export default function PatientDashboard() {
   const { user } = useAuth();
@@ -19,12 +27,14 @@ export default function PatientDashboard() {
   const [pending, setPending] = useState<any[]>([]);
   const [durations, setDurations] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [managedBy, setManagedBy] = useState<IncomingAccessLink[]>([]);
 
   // Initial Data Load
   useEffect(() => {
     if (!user) return;
     pollPending();
     checkActiveQR();
+    loadManagedBy();
     const id = setInterval(pollPending, 3000);
     return () => clearInterval(id);
   }, [user]);
@@ -64,6 +74,7 @@ export default function PatientDashboard() {
   const handleExpiry = () => {
     setQrToken(null);
     setSecondsLeft(null);
+    sessionStorage.removeItem("active_qr");
   };
 
   const pollPending = async () => {
@@ -191,6 +202,16 @@ export default function PatientDashboard() {
     }
   };
 
+  const loadManagedBy = async () => {
+    try {
+      const incoming = await listAccessedBy();
+      setManagedBy(Array.isArray(incoming) ? incoming : []);
+    } catch (err) {
+      console.error("Managed-by load failed", err);
+      setManagedBy([]);
+    }
+  };
+
   // Helper to format mm:ss
   const formatTime = (s: number) => {
     const mins = Math.floor(s / 60);
@@ -204,6 +225,24 @@ export default function PatientDashboard() {
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
           Error loading dashboard: {error}
         </div>
+      )}
+
+      {managedBy.length > 0 && (
+        <section className="bg-emerald-50 border border-emerald-100 rounded-2xl p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-2">
+            Managed By
+          </p>
+          <div className="space-y-2">
+            {managedBy.map((link) => (
+              <div key={link.id} className="rounded-lg bg-white border border-emerald-100 px-4 py-3">
+                <p className="font-semibold text-emerald-900">
+                  {link.owner_name || link.owner_email} can access this profile
+                </p>
+                <p className="text-sm text-emerald-700">{link.owner_email}</p>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* 1. My Health QR (HERO) */}
@@ -317,7 +356,14 @@ export default function PatientDashboard() {
           </div>
         </div>
 
-
+        <Link to="/family">
+          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition cursor-pointer">
+            <h2 className="text-lg font-semibold text-gray-800">👨‍👩‍👧 Family Mode</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Add family members to manage your health records on your behalf
+            </p>
+          </div>
+        </Link>
 
         {/* RIGHT COLUMN: SECURITY & TRUST */}
         <div className="space-y-8">

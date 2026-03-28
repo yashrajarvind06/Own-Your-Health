@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.models import AccessRequest, ActiveAccessSession, User
 from app.services.access_service import AccessService
 from app.deps import get_db, require_role
-from app.auth import get_current_user
+from app.auth import get_current_user, get_active_profile_user_id
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -62,7 +62,8 @@ def request_access(
 @router.get("/requests/pending")
 def list_pending_requests(patient_id: int, user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
     access_service = AccessService(db)
-    pending_requests = access_service.get_pending_requests(patient_id)
+    active_patient_id = get_active_profile_user_id(user)
+    pending_requests = access_service.get_pending_requests(active_patient_id)
     return [{"id": req.id, "doctor_id": req.doctor_id, "doctor_name": req.doctor.display_name, "patient_id": req.patient_id} for req in pending_requests]
 
 class ApproveRequestModel(BaseModel):
@@ -99,6 +100,7 @@ def deny_request(request_id: int, body: DenyRequestModel = DenyRequestModel(), u
 @router.get("/session/status")
 def session_status(patient_id: int, doctor_id: int = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     access_service = AccessService(db)
+    active_patient_id = get_active_profile_user_id(user)
     
     # Infer Doctor ID from User if not provided
     if doctor_id is None:
@@ -106,6 +108,8 @@ def session_status(patient_id: int, doctor_id: int = None, user: User = Depends(
             doctor_id = user.id
         else:
             raise HTTPException(status_code=400, detail="Doctor ID is required for non-doctor users.")
+    elif user.role == "patient":
+        patient_id = active_patient_id
 
     # New Production-Grade Logic
     state = access_service.get_smart_status(doctor_id, patient_id)
@@ -169,7 +173,7 @@ def revoke_session(
 
     elif user.role == "patient":
         source = RevocationSource.PATIENT
-        patient_id = user.id
+        patient_id = get_active_profile_user_id(user)
         doctor_id = body.doctor_id
         if not doctor_id:
              raise HTTPException(status_code=422, detail="Patients must provide doctor_id to revoke access.")
@@ -205,4 +209,4 @@ def get_active_sessions_for_patient(user: User = Depends(require_role("patient")
     Returns list of doctors who have active access to the patient's data.
     """
     access_service = AccessService(db)
-    return access_service.get_patient_active_sessions(user.id)
+    return access_service.get_patient_active_sessions(get_active_profile_user_id(user))

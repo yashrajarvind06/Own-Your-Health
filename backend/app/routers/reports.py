@@ -9,6 +9,7 @@ from datetime import datetime
 from ..database import SessionLocal
 from ..models import MedicalReport, AuditLog, User, ActiveAccessSession, AccessLog
 from app.deps import require_role, get_db
+from app.auth import get_active_profile_user_id
 from ..blockchain import store_hash_on_chain
 from datetime import datetime as dt
 from app.services.log_service import LogService
@@ -29,12 +30,13 @@ def get_s3():
 
 @router.post("/upload")
 def upload_report(report_id: str = Form(...), file: UploadFile = File(...), user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
-    print(f"DEBUG: Upload Request - User: {user.id}, ReportID: {report_id}, Filename: {file.filename}") # Debug Log
+    patient_id = get_active_profile_user_id(user)
+    print(f"DEBUG: Upload Request - User: {patient_id}, ReportID: {report_id}, Filename: {file.filename}") # Debug Log
     data = file.file.read()
     digest = sha256(data).hexdigest()
     s3, bucket = get_s3()
     
-    key = f"reports/{user.id}/{datetime.utcnow().timestamp()}_{file.filename}"
+    key = f"reports/{patient_id}/{datetime.utcnow().timestamp()}_{file.filename}"
     
     if s3:
         s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=file.content_type)
@@ -47,7 +49,7 @@ def upload_report(report_id: str = Form(...), file: UploadFile = File(...), user
             
     tx_hash = store_hash_on_chain(digest, report_id) or ""
     rec = MedicalReport(
-        patient_id=user.id,
+        patient_id=patient_id,
         filename=file.filename,
         mime_type=file.content_type or "application/octet-stream",
         file_key=key,
@@ -56,14 +58,15 @@ def upload_report(report_id: str = Form(...), file: UploadFile = File(...), user
         blockchain_tx=tx_hash,
     )
     db.add(rec)
-    db.add(AuditLog(actor_user_id=user.id, patient_id=user.id, details=f"Action: upload_report, ID: {report_id}"))
+    db.add(AuditLog(actor_user_id=user.id, patient_id=patient_id, details=f"Action: upload_report, ID: {report_id}"))
     db.commit()
     db.refresh(rec)
     return {"id": rec.id, "sha256": digest, "blockchain_tx": tx_hash}
 
 @router.get("/my")
 def my_reports(user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
-    items = db.query(MedicalReport).filter(MedicalReport.patient_id == user.id).all()
+    patient_id = get_active_profile_user_id(user)
+    items = db.query(MedicalReport).filter(MedicalReport.patient_id == patient_id).all()
     s3, bucket = get_s3()
     
     def presigned(key: str):
@@ -73,6 +76,9 @@ def my_reports(user: User = Depends(require_role("patient")), db: Session = Depe
             except Exception:
                 return None
         else:
+            local_path = Path("storage") / key
+            if not local_path.exists():
+                return None
             return f"/api/static/{key}"
 
     out = []
