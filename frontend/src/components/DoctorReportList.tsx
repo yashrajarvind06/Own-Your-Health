@@ -10,8 +10,15 @@ interface DoctorReportListProps {
     sessionId: number;
 }
 
+type ReportItem = {
+    id: number;
+    filename: string;
+    created_at?: string;
+    uploaded_by?: "PATIENT" | "DOCTOR";
+};
+
 export default function DoctorReportList({ patientId, sessionId }: DoctorReportListProps) {
-    const [reports, setReports] = useState<any[]>([]);
+    const [reports, setReports] = useState<ReportItem[]>([]);
     const [accessMap, setAccessMap] = useState<Record<number, ReportStatus>>({});
 
     // Store Expiry AND Type
@@ -224,6 +231,9 @@ export default function DoctorReportList({ patientId, sessionId }: DoctorReportL
                                 </div>
                                 <div className="text-xs text-gray-500">
                                     {r.created_at ? r.created_at.split('T')[0] : 'Date Unknown'}
+                                </div>
+                                <div className={`mt-1 text-xs ${r.uploaded_by === "DOCTOR" ? "text-green-600" : "text-yellow-600"}`}>
+                                    {r.uploaded_by === "DOCTOR" ? "🟢 Verified Doctor" : "🟡 Patient Uploaded"}
                                 </div>
                             </div>
                         </div>

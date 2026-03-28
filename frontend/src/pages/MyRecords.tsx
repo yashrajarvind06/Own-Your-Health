@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, apiForm } from "../api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
-import { Lock, Unlock, Eye, Clock, FileText, Download, ShieldCheck, Plus, Search, X, AlertCircle, User as UserIcon, RefreshCw } from "lucide-react";
+import { Lock, Unlock, Eye, Clock, FileText, Download, ShieldCheck, Plus, Search, X, AlertCircle, User as UserIcon, RefreshCw, Trash2 } from "lucide-react";
 import PendingRequestsList from "../components/PendingRequestsList";
 
 type Report = {
@@ -12,6 +12,8 @@ type Report = {
     presigned_url: string;
     blockchain_tx?: string;
     report_id: string; // The user-entered ID/Name
+    summary?: string;
+    uploaded_by: "PATIENT" | "DOCTOR";
 };
 
 type ReportState = "LOCKED" | "SHARED" | "EXPIRED" | "VIEWED";
@@ -114,11 +116,13 @@ const ManageAccessModal = ({
 const ReportCard = ({
     report,
     perm,
-    onManage
+    onManage,
+    onDelete
 }: {
     report: Report;
     perm: PermissionMeta;
     onManage: () => void;
+    onDelete: () => void;
 }) => {
     // If we have active shares, status is SHARED.
     const isShared = perm.shares && perm.shares.length > 0;
@@ -139,6 +143,9 @@ const ReportCard = ({
                         <div className="flex items-center gap-1 text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded-full border border-gray-100">
                             <Lock size={10} /> Encrypted
                         </div>
+                        <div className={`text-[10px] font-medium px-2 py-1 rounded-full border ${report.uploaded_by === "DOCTOR" ? "border-green-100 bg-green-50 text-green-600" : "border-yellow-100 bg-yellow-50 text-yellow-600"}`}>
+                            {report.uploaded_by === "DOCTOR" ? "🟢 Verified Doctor" : "🟡 Patient Uploaded"}
+                        </div>
                     </div>
                 </div>
 
@@ -147,6 +154,9 @@ const ReportCard = ({
                     <h3 className="font-bold text-gray-900 truncate text-base leading-tight" title={report.report_id}>
                         {report.report_id}
                     </h3>
+                    <p className="text-sm text-gray-500 mt-2 min-h-[40px]">
+                        {report.summary || "No summary available"}
+                    </p>
                     <p className="text-xs text-gray-500 mt-1 truncate">{report.filename}</p>
                     <div className="text-[10px] text-gray-400 mt-1">
                         {new Date(report.created_at).toLocaleDateString()}
@@ -253,6 +263,18 @@ const ReportCard = ({
                 >
                     <Download size={16} />
                 </a>
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onDelete();
+                    }}
+                    className="h-9 w-9 flex items-center justify-center border rounded-lg text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors bg-white"
+                    title="Delete"
+                >
+                    <Trash2 size={15} />
+                </button>
             </div>
         </div>
     );
@@ -501,6 +523,23 @@ export default function MyRecords() {
         }
     };
 
+    const handleDelete = async (reportId: number) => {
+        if (!window.confirm("Delete this report permanently?")) return;
+
+        try {
+            await api(`/reports/${reportId}`, { method: "DELETE" });
+            setReports((current) => current.filter((report) => report.id !== reportId));
+            setPermissions((current) => {
+                const next = { ...current };
+                delete next[reportId];
+                return next;
+            });
+            await loadReportsAndPermissions();
+        } catch (e: any) {
+            alert(e.message || "Delete failed.");
+        }
+    };
+
     const filteredReports = reports.filter(r =>
         r.report_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.filename.toLowerCase().includes(searchQuery.toLowerCase())
@@ -582,6 +621,7 @@ export default function MyRecords() {
                                 setSelectedReportId(r.id);
                                 setIsManageOpen(true);
                             }}
+                            onDelete={() => handleDelete(r.id)}
                         />
                     ))
                 )}

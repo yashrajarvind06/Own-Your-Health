@@ -47,6 +47,20 @@ export default function Layout({ children }: LayoutProps) {
                                         </Button>
                                     </Link>
                                 )}
+                                {role === "patient" && (
+                                    <Link to="/patient/doctors">
+                                        <Button variant={isActive("/patient/doctors") ? "primary" : "outline"} size="sm" className={isActive("/patient/doctors") ? "" : "border-0 text-gray-600 hover:text-blue-600 hover:bg-transparent"}>
+                                            Doctors
+                                        </Button>
+                                    </Link>
+                                )}
+                                {role === "patient" && (
+                                    <Link to="/patient/trends">
+                                        <Button variant={isActive("/patient/trends") ? "primary" : "outline"} size="sm" className={isActive("/patient/trends") ? "" : "border-0 text-gray-600 hover:text-blue-600 hover:bg-transparent"}>
+                                            Trends
+                                        </Button>
+                                    </Link>
+                                )}
                                 {role === "doctor" && (
                                     <Link to="/doctor">
                                         <Button variant={isActive("/doctor") ? "primary" : "outline"} size="sm" className={isActive("/doctor") ? "" : "border-0 text-gray-600 hover:text-blue-600 hover:bg-transparent"}>

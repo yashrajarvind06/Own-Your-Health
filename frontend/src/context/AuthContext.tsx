@@ -6,6 +6,9 @@ interface User {
     email: string;
     role: "patient" | "doctor" | "lab";
     display_name?: string | null;
+    name?: string | null;
+    verified?: boolean;
+    hpr_id?: string | null;
 }
 
 interface AuthContextType {

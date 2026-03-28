@@ -4,9 +4,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine, get_db
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from fastapi import Depends
-from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access
+from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, doctors
 
 def create_app() -> FastAPI:
     app = FastAPI(
@@ -22,7 +23,6 @@ def create_app() -> FastAPI:
         # --- AUTO MIGRATION START ---
         # Force add the column if it's missing (Safe for restart)
         try:
-            from sqlalchemy import text
             with engine.connect() as conn:
                 # 1. Users Display Name
                 conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)"))
@@ -32,6 +32,17 @@ def create_app() -> FastAPI:
                 # 3. Access Request Reason (Phase 2)
                 conn.execute(text("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS access_reason VARCHAR(50) DEFAULT 'UNKNOWN'"))
                 conn.execute(text("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS reason_note TEXT"))
+                conn.execute(text("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS request_source VARCHAR(20) DEFAULT 'QR'"))
+                conn.execute(text("UPDATE access_requests SET request_source = 'QR' WHERE request_source IS NULL"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS extracted_text TEXT"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS summary VARCHAR(255)"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS bp_systolic INTEGER"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS bp_diastolic INTEGER"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS heart_rate INTEGER"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS glucose INTEGER"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS report_date TIMESTAMP"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS uploaded_by VARCHAR(20) DEFAULT 'PATIENT' NOT NULL"))
+                conn.execute(text("UPDATE medical_reports SET uploaded_by = 'PATIENT' WHERE uploaded_by IS NULL"))
                 
                 conn.commit()
                 print("SUCCESS: schema migrations applied.")
@@ -62,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(reports.router, prefix="/reports", tags=["reports"])
     app.include_router(logs.router, prefix="/logs", tags=["logs"])
     app.include_router(users.router, prefix="/user", tags=["user"])
+    app.include_router(doctors.router, tags=["doctors"])
     # app.include_router(access_profile.router, prefix="/patient", tags=["patient_access_profile"]) # Not found in fs
     app.include_router(patient_history.router, prefix="/patient/access", tags=["patient_history"])
     app.include_router(patient_report_log.router, prefix="/patient/reports", tags=["patient_report_log"])
