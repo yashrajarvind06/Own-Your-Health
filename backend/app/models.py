@@ -39,10 +39,11 @@ class QRToken(Base):
 class AccessRequest(Base):
     __tablename__ = "access_requests"
     id = Column(Integer, primary_key=True, index=True)
-    qr_token_id = Column(Integer, ForeignKey("qr_tokens.id"), nullable=False)
+    qr_token_id = Column(Integer, ForeignKey("qr_tokens.id"), nullable=True)
     doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(String(50), nullable=False)
+    request_source = Column(String(20), nullable=False, default="QR")
     
     # Phase 2: Access Reason
     access_reason = Column(String(50), nullable=False) # Code: FOLLOW_UP, DIAGNOSTIC, etc.
@@ -68,6 +69,31 @@ class ActiveAccessSession(Base):
     revocation_source = Column(String(50), nullable=True) # PATIENT | DOCTOR | SYSTEM
     revocation_reason = Column(String(255), nullable=True)
 
+class DoctorInteraction(Base):
+    __tablename__ = "doctor_interactions"
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    interaction_count = Column(Integer, nullable=False, default=0)
+    last_interacted_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('patient_id', 'doctor_id', name='uq_doctor_interaction_pair'),
+    )
+
+class DoctorPatientAccess(Base):
+    __tablename__ = "doctor_patient_access"
+    id = Column(Integer, primary_key=True, index=True)
+    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    access_granted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    access_revoked_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        UniqueConstraint('doctor_id', 'patient_id', name='uq_doctor_patient_access_pair'),
+    )
+
 class MedicalReport(Base):
     __tablename__ = "medical_reports"
     id = Column(Integer, primary_key=True, index=True)
@@ -78,6 +104,14 @@ class MedicalReport(Base):
     sha256_hash = Column(String(255), nullable=False)
     report_id = Column(String(100), nullable=False)
     blockchain_tx = Column(String(255), nullable=False)
+    extracted_text = Column(Text, nullable=True)
+    summary = Column(String(255), nullable=True)
+    bp_systolic = Column(Integer, nullable=True)
+    bp_diastolic = Column(Integer, nullable=True)
+    heart_rate = Column(Integer, nullable=True)
+    glucose = Column(Integer, nullable=True)
+    report_date = Column(DateTime, nullable=True)
+    uploaded_by = Column(String(20), nullable=False, default="PATIENT")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class AuditLog(Base):

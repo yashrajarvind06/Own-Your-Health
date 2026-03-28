@@ -24,9 +24,12 @@ const Icons = {
 
 interface UserProfile {
     id: number;
+    name?: string | null;
     display_name: string | null;
     email: string;
     role: string;
+    verified?: boolean;
+    hpr_id?: string | null;
 }
 
 export default function ProfilePage() {
@@ -38,6 +41,8 @@ export default function ProfilePage() {
     const [editName, setEditName] = useState("");
     const [savingName, setSavingName] = useState(false);
     const [nameMessage, setNameMessage] = useState("");
+    const [editHprId, setEditHprId] = useState("");
+    const [verificationMessage, setVerificationMessage] = useState("");
 
     useEffect(() => {
         loadData();
@@ -52,6 +57,7 @@ export default function ProfilePage() {
             // If display_name is null/empty, setEditName to empty string.
             // Do NOT infer or fallback to anything else.
             setEditName(userData.display_name || "");
+            setEditHprId(userData.hpr_id || "");
         } catch (err: any) {
             setError("Unable to load profile information");
             console.error(err);
@@ -90,9 +96,15 @@ export default function ProfilePage() {
     if (!user) return <div className="p-8 text-center">User not found.</div>;
 
     const isDoctor = user.role === "doctor";
+    const isVerifiedDoctor = isDoctor && Boolean(user.verified);
     // Badge Label
     const badgeLabel = isDoctor ? "Doctor Account" : "Patient Account";
     const BadgeIcon = isDoctor ? Icons.DoctorBadge : Icons.PatientBadge;
+
+    function handleVerifyNow() {
+        setVerificationMessage("Verification under review");
+        setTimeout(() => setVerificationMessage(""), 3000);
+    }
 
     return (
         <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-500 px-4 sm:px-6">
@@ -138,6 +150,44 @@ export default function ProfilePage() {
                             <p>All access requests and emergency views are visible to you.</p>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {isDoctor && (
+                <div className={`rounded-xl border p-6 shadow-sm ${isVerifiedDoctor ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold ${isVerifiedDoctor ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                                <Icons.Check />
+                                {isVerifiedDoctor ? "HPR Verified" : "Verification Required"}
+                            </div>
+                            <h3 className={`mt-3 text-lg font-bold ${isVerifiedDoctor ? "text-emerald-900" : "text-amber-900"}`}>
+                                {isVerifiedDoctor ? "Verified Professional Account" : "Verification Required"}
+                            </h3>
+                            <div className={`mt-2 space-y-1 text-sm ${isVerifiedDoctor ? "text-emerald-800" : "text-amber-800"}`}>
+                                <p>
+                                    {isVerifiedDoctor
+                                        ? "Your medical credentials are verified. You can access patient records securely."
+                                        : "Your account is not verified with HPR."}
+                                </p>
+                                {!isVerifiedDoctor && (
+                                    <>
+                                        <p>You must verify your identity to request patient data access.</p>
+                                        <p>You must verify your identity to view medical reports.</p>
+                                    </>
+                                )}
+                                <p className="font-medium">HPR ID: {user.hpr_id || "Not assigned"}</p>
+                            </div>
+                        </div>
+                        {!isVerifiedDoctor && (
+                            <div className="sm:pt-1">
+                                <Button onClick={handleVerifyNow}>Verify Now</Button>
+                            </div>
+                        )}
+                    </div>
+                    {verificationMessage && (
+                        <p className="mt-3 text-sm font-medium text-amber-800">{verificationMessage}</p>
+                    )}
                 </div>
             )}
 
@@ -190,6 +240,36 @@ export default function ProfilePage() {
                             <div className="h-px bg-gray-100 my-6" />
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {isDoctor && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                                            <Icons.Shield />
+                                            HPR Registration ID
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                value={editHprId}
+                                                onChange={(e) => setEditHprId(e.target.value)}
+                                                readOnly={isVerifiedDoctor}
+                                                disabled={isVerifiedDoctor}
+                                                placeholder="HPR__________"
+                                                className={isVerifiedDoctor ? "bg-gray-50 text-gray-600 cursor-not-allowed" : ""}
+                                            />
+                                            <Button
+                                                type="button"
+                                                onClick={handleVerifyNow}
+                                                disabled={isVerifiedDoctor || !editHprId.trim()}
+                                                title={isVerifiedDoctor ? "HPR already verified" : "Verification under review"}
+                                            >
+                                                Verify
+                                            </Button>
+                                        </div>
+                                        <p className="mt-2 text-xs text-gray-500">
+                                            {isVerifiedDoctor ? "This registration ID is locked after verification." : "Enter your HPR registration ID and submit it for review."}
+                                        </p>
+                                    </div>
+                                )}
+
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                                         <Icons.Mail />
@@ -220,32 +300,32 @@ export default function ProfilePage() {
                     {/* 4/5. Data Control (Patient) OR Capabilities (Doctor) */}
                     {isDoctor ? (
                         // REPLACED Card with custom div to force colors
-                        <div className="bg-blue-50 rounded-xl shadow-sm border border-blue-200 overflow-hidden hover:shadow-md transition-shadow duration-300">
-                            <div className="px-6 py-4 border-b border-blue-100">
-                                <h3 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
+                        <div className={`${isVerifiedDoctor ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"} rounded-xl shadow-sm border overflow-hidden hover:shadow-md transition-shadow duration-300`}>
+                            <div className={`px-6 py-4 border-b ${isVerifiedDoctor ? "border-blue-100" : "border-amber-100"}`}>
+                                <h3 className={`text-lg font-semibold flex items-center gap-2 ${isVerifiedDoctor ? "text-blue-900" : "text-amber-900"}`}>
                                     <span>🔐 Your Capabilities</span>
                                 </h3>
                             </div>
-                            <div className="p-6 text-sm text-blue-900 space-y-4">
-                                <p className="font-semibold text-blue-900 flex items-center gap-2">
+                            <div className={`p-6 text-sm space-y-4 ${isVerifiedDoctor ? "text-blue-900" : "text-amber-900"}`}>
+                                <p className={`font-semibold flex items-center gap-2 ${isVerifiedDoctor ? "text-blue-900" : "text-amber-900"}`}>
                                     <Icons.DoctorBadge />
-                                    <span>Authorized Actions</span>
+                                    <span>{isVerifiedDoctor ? "Authorized Actions" : "Restricted Until Verification"}</span>
                                 </p>
                                 <ul className="space-y-3">
                                     <li className="flex items-start gap-3">
-                                        <span className="text-blue-600 mt-0.5"><Icons.Check /></span>
-                                        <span className="leading-tight">Request time-bound access to patient medical records</span>
+                                        <span className={`${isVerifiedDoctor ? "text-blue-600" : "text-amber-600"} mt-0.5`}><Icons.Check /></span>
+                                        <span className="leading-tight">{isVerifiedDoctor ? "Request time-bound access to patient medical records" : "Request Access is disabled until your HPR verification is complete"}</span>
                                     </li>
                                     <li className="flex items-start gap-3">
-                                        <span className="text-blue-600 mt-0.5"><Icons.Check /></span>
-                                        <span className="leading-tight">View emergency profiles during critical situations</span>
+                                        <span className={`${isVerifiedDoctor ? "text-blue-600" : "text-amber-600"} mt-0.5`}><Icons.Check /></span>
+                                        <span className="leading-tight">{isVerifiedDoctor ? "View emergency profiles during critical situations" : "View patient reports is disabled until your identity is verified"}</span>
                                     </li>
                                     <li className="flex items-start gap-3">
-                                        <span className="text-blue-600 mt-0.5"><Icons.Check /></span>
+                                        <span className={`${isVerifiedDoctor ? "text-blue-600" : "text-amber-600"} mt-0.5`}><Icons.Check /></span>
                                         <span className="leading-tight">Verify patient identities with secure QR scanning</span>
                                     </li>
                                     <li className="flex items-start gap-3">
-                                        <span className="text-blue-600 mt-0.5"><Icons.Check /></span>
+                                        <span className={`${isVerifiedDoctor ? "text-blue-600" : "text-amber-600"} mt-0.5`}><Icons.Check /></span>
                                         <span className="leading-tight">All actions are logged and visible to patients</span>
                                     </li>
                                 </ul>

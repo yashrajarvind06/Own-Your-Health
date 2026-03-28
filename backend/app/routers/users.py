@@ -4,6 +4,7 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models import User
 from app.schemas import UserProfileResponse, UpdateUserProfileRequest
+from app.services.doctor_directory import get_doctor_profile, verify_doctor
 
 router = APIRouter()
 
@@ -15,8 +16,22 @@ def get_user_profile(
     """
     Get the current authenticated user's profile identity.
     """
-    # Simply return the user object, Pydantic handles the filtering via response_model
-    return current_user
+    verified = False
+    hpr_id = None
+    if current_user.role == "doctor":
+        profile = get_doctor_profile(current_user.id)
+        hpr_id = profile["hpr_id"]
+        verified = verify_doctor(hpr_id)
+
+    return {
+        "id": current_user.id,
+        "name": current_user.display_name,
+        "display_name": current_user.display_name,
+        "email": current_user.email,
+        "role": current_user.role,
+        "verified": verified,
+        "hpr_id": hpr_id,
+    }
 
 @router.put("/me/display-name")
 def update_display_name(

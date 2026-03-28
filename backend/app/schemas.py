@@ -41,9 +41,12 @@ class UserResponse(BaseModel):
 
 class UserProfileResponse(BaseModel):
     id: int
+    name: Optional[str] = None
     display_name: Optional[str]
     email: EmailStr
     role: str
+    verified: bool = False
+    hpr_id: Optional[str] = None
 
 class UpdateUserProfileRequest(BaseModel):
     display_name: str

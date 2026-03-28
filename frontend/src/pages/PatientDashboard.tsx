@@ -294,7 +294,25 @@ export default function PatientDashboard() {
           )}
 
           {/* 3. Quick Access */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Link to="/patient/trends" className="block group">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-violet-100 hover:shadow-md hover:border-violet-200 transition-all">
+                <div className="w-12 h-12 bg-violet-50 rounded-lg flex items-center justify-center text-violet-600 text-2xl mb-4 group-hover:scale-110 transition-transform">
+                  ≈
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 group-hover:text-violet-700">Health Trends</h3>
+                <p className="text-sm text-gray-500 mt-1">Review OCR-derived blood pressure, heart rate, and glucose trends.</p>
+              </div>
+            </Link>
+            <Link to="/patient/doctors" className="block group">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100 hover:shadow-md hover:border-emerald-200 transition-all">
+                <div className="w-12 h-12 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600 text-2xl mb-4 group-hover:scale-110 transition-transform">
+                  +
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 group-hover:text-emerald-700">Find Doctors</h3>
+                <p className="text-sm text-gray-500 mt-1">Search doctors and request record access directly.</p>
+              </div>
+            </Link>
             <Link to="/patient/emergency-profile" className="block group">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-red-100 hover:shadow-md hover:border-red-200 transition-all">
                 <div className="w-12 h-12 bg-red-50 rounded-lg flex items-center justify-center text-red-600 text-2xl mb-4 group-hover:scale-110 transition-transform">
