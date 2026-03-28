@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useState, useRef, useEffect } from "react";
+import { useEmergencyProfileStatus } from "./Emergency/emergencyProfileStatus";
 
 export default function PatientProfileDropdown() {
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const { user, logout } = useAuth();
+    const emergencyProfileStatus = useEmergencyProfileStatus(user?.id);
 
     const name = user?.display_name || "Patient";
     const email = user?.email || "";
@@ -35,10 +37,17 @@ export default function PatientProfileDropdown() {
             <button
                 onClick={toggleOpen}
                 className="flex items-center gap-2 focus:outline-none transition-transform active:scale-95"
-                title="Profile Menu"
+                title={`Profile Menu${emergencyProfileStatus.loading ? "" : ` - Emergency setup ${emergencyProfileStatus.percent}% complete`}`}
             >
-                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-lg shadow-sm hover:bg-blue-200 transition-colors border-2 border-white ring-2 ring-gray-100">
-                    {initials}
+                <div
+                    className="rounded-full p-[3px] shadow-sm ring-2 ring-gray-100 transition-transform"
+                    style={{
+                        background: `conic-gradient(${emergencyProfileStatus.ringColor} ${emergencyProfileStatus.percent}%, #e5e7eb ${emergencyProfileStatus.percent}% 100%)`,
+                    }}
+                >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-blue-100 text-lg font-semibold text-blue-600 transition-colors hover:bg-blue-200">
+                        {initials}
+                    </div>
                 </div>
             </button>
 

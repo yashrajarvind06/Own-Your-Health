@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CalendarDays, Download, ExternalLink, HeartPulse, QrCode, ShieldCheck, UserRound } from "lucide-react";
 
 import { api } from "../../api";
+import { markEmergencyQrGenerated, notifyEmergencyProfileStatusChanged } from "./emergencyProfileStatus";
 import { Button } from "../ui/Button";
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || "http://127.0.0.1:8000";
@@ -163,6 +164,7 @@ export default function EmergencyQRSection() {
       setPatientId(result.patient_id);
       setSaved(true);
       setQrNonce(Date.now());
+      notifyEmergencyProfileStatusChanged();
       setSuccess("Emergency card saved. You can preview the e-card and generate the global QR now.");
     } catch (err: any) {
       setError("Failed to save: " + err.message);
@@ -175,6 +177,7 @@ export default function EmergencyQRSection() {
     if (!saved || !patientId) return;
     setQrNonce(Date.now());
     setShowQr(true);
+    markEmergencyQrGenerated(patientId);
     setSuccess("Global QR generated from your saved emergency card.");
   };
 
@@ -188,6 +191,7 @@ export default function EmergencyQRSection() {
     anchor.download = "ownyourhealth-emergency-qr.png";
     anchor.click();
     URL.revokeObjectURL(url);
+    markEmergencyQrGenerated(patientId);
   };
 
   if (loading) {
