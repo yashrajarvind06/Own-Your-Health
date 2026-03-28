@@ -16,6 +16,12 @@ type EmergencyProfile = {
   past_surgeries?: string;
 };
 
+// --- Helpers ---
+/** Backend /session/status returns an array; normalise to a single object. */
+function normalizeSession(res: any) {
+  return Array.isArray(res) ? res[0] : res;
+}
+
 // --- Definitions ---
 const ACCESS_REASONS = [
   { code: 'FOLLOW_UP', label: 'Follow-up consultation' },
@@ -82,11 +88,14 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
       setShowReasonModal(false);
       setStatus("pending");
 
-      // Poll for approval
-      const qrInfo = await api(`/access/session/status?patient_id=${patientId}`);
-      if (qrInfo.status === "GRANTED" || qrInfo.status === "granted") {
+      // Initial status check right after submitting (backend response is an array)
+      const _raw = await api(`/access/session/status?patient_id=${patientId}`);
+      const qrInfo = normalizeSession(_raw);
+      if (!qrInfo) return; // empty array guard
+
+      if (qrInfo.status?.toLowerCase() === "granted") {
         setStatus("granted");
-        setRemaining(qrInfo.remaining_seconds);
+        setRemaining(qrInfo.remaining_seconds ?? 0);
         if (qrInfo.id) setSessionId(qrInfo.id);
       }
     } catch (e: any) {
@@ -159,7 +168,7 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
     const pollStatus = async () => {
       try {
         const res = await api(`/access/session/status?patient_id=${patientId}`);
-        const qrInfo = Array.isArray(res) ? res[0] : res;
+        const qrInfo = normalizeSession(res);
 
         if (!qrInfo || !qrInfo.status) {
           return;

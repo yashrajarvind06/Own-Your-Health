@@ -8,9 +8,9 @@ import {
     Clock,
     FileText,
     ShieldAlert,
+    Search,
     ArrowRight
 } from "lucide-react";
-import { Button } from "./ui/Button";
 
 interface Step {
     id: number;
@@ -27,29 +27,29 @@ export default function HowItWorks() {
         {
             id: 1,
             icon: UserPlus,
-            title: "Create Your Account",
-            description: "Register as a patient and securely upload your medical records, emergency contacts, and health information.",
+            title: "Create Your Health Vault",
+            description: "Register as a patient, upload reports, maintain emergency information, and keep your health records in one secure place.",
             color: "text-blue-600 bg-blue-100"
         },
         {
             id: 2,
-            icon: QrCode,
-            title: "Generate QR Code",
-            description: "Create a time-limited QR code from your dashboard when you need to share records with a doctor.",
+            icon: Search,
+            title: "Find Verified Doctors",
+            description: "Search doctors by name, review verification status, and send direct access requests to trusted professionals.",
             color: "text-blue-600 bg-blue-50"
         },
         {
             id: 3,
-            icon: ScanLine,
-            title: "Doctor Scans Code",
-            description: "Healthcare professional scans your QR code to request access to your medical records during consultation.",
+            icon: QrCode,
+            title: "Share Access Your Way",
+            description: "Use a time-limited QR during consultation or approve a direct request from a doctor when you choose to share records.",
             color: "text-green-600 bg-green-50"
         },
         {
             id: 4,
             icon: CheckCircle,
-            title: "Approve & Monitor",
-            description: "Review the access request and approve it. Monitor active sessions and view complete audit trails anytime.",
+            title: "Track Reports And Trends",
+            description: "See uploaded records, doctor-uploaded documents, and OCR-derived trends for blood pressure, heart rate, and glucose.",
             color: "text-orange-600 bg-orange-50"
         }
     ];
@@ -58,29 +58,29 @@ export default function HowItWorks() {
         {
             id: 1,
             icon: Stethoscope,
-            title: "Doctor Registration",
-            description: "Register with your medical credentials and facility information for verification.",
+            title: "Register And Verify",
+            description: "Create a doctor account, submit your HPR registration, and unlock patient-data workflows once verification is complete.",
             color: "text-blue-600 bg-blue-100"
         },
         {
             id: 2,
             icon: ScanLine,
-            title: "Scan Patient QR",
-            description: "Use the built-in scanner to scan patient's QR code and request access to records.",
+            title: "Request Access",
+            description: "Scan a patient QR for session-based access or receive direct patient requests from the doctor search workflow.",
             color: "text-blue-600 bg-blue-50"
         },
         {
             id: 3,
             icon: Clock,
-            title: "Wait for Approval",
-            description: "Patient receives instant notification and can approve or deny your access request.",
+            title: "Review Notifications",
+            description: "Track pending approvals, open the patient context, and manage access decisions directly from the doctor dashboard.",
             color: "text-green-600 bg-green-50"
         },
         {
             id: 4,
             icon: FileText,
-            title: "Access Records",
-            description: "Once approved, securely view medical records, reports, and emergency information.",
+            title: "Continue Care Securely",
+            description: "View shared reports, manage active and past patients, and upload reports only when a valid patient relationship exists.",
             color: "text-orange-600 bg-orange-50"
         }
     ];
@@ -95,7 +95,7 @@ export default function HowItWorks() {
                 <div className="text-center mb-12">
                     <h2 className="text-3xl font-bold text-gray-900 mb-4">How It Works</h2>
                     <p className="text-gray-500 max-w-2xl mx-auto">
-                        Simple, secure, and fast. Get started in minutes with our intuitive platform.
+                        Two role-specific journeys, one secure platform for access control, verified care, and record continuity.
                     </p>
                 </div>
 
@@ -172,8 +172,8 @@ export default function HowItWorks() {
                     <div>
                         <h3 className="text-xl font-bold text-gray-900 mb-2">Emergency Break Glass Protocol</h3>
                         <p className="text-gray-600 leading-relaxed text-sm md:text-base">
-                            In life-threatening situations, healthcare providers can use Emergency Access to immediately view critical patient information.
-                            All emergency accesses are fully logged and audited for compliance.
+                            In life-threatening situations, doctors can trigger emergency access to reach critical patient information quickly.
+                            Every emergency action remains logged and separated from full report access for accountability.
                         </p>
                     </div>
                 </div>

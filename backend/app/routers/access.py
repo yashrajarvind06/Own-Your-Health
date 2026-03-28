@@ -6,17 +6,20 @@ from app.services.access_service import AccessService
 from app.deps import get_db, require_role
 from app.auth import get_current_user
 from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter()
 
 class RequestAccessModel(BaseModel):
+    model_config = {"extra": "ignore"}
+
     token: str
     patient_id: int
     report_id: str = "ALL"
-    doctor_id: int = None
+    doctor_id: Optional[int] = None
     access_context: str = "NORMAL"
-    access_reason: str = None
-    reason_note: str = None
+    access_reason: Optional[str] = None
+    reason_note: Optional[str] = None
 
 class DirectAccessRequestModel(BaseModel):
     doctor_id: int

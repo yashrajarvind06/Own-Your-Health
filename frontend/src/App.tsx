@@ -42,19 +42,20 @@ function Landing() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
             </span>
-            The Future of Medical Records
+            Patient-Controlled Access, Verified Care
           </div>
 
           <h1 className="text-5xl md:text-7xl font-extrabold text-gray-900 tracking-tight mb-8 leading-tight animate-in fade-in slide-in-from-bottom-6 duration-700">
-            Your Health Records, <br />
+            Secure Health Records, <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
-              Under Your Control
+              Shared On Your Terms
             </span>
           </h1>
 
+
           <p className="max-w-2xl mx-auto text-xl text-gray-600 mb-10 leading-relaxed animate-in fade-in slide-in-from-bottom-6 duration-700 delay-100">
-            Securely store, manage, and share your medical history with doctors using
-            advanced QR technology. Blockchain-backed privacy for total peace of mind.
+            OwnYourHealth helps patients manage records, share access through QR or direct doctor requests,
+            track OCR-derived health trends, and work only with HPR-verified doctors in a secure, auditable workflow.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center animate-in fade-in slide-in-from-bottom-6 duration-700 delay-200">
