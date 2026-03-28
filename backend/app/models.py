@@ -192,3 +192,25 @@ class EmergencyAccessLog(Base):
     approx_location = Column(String(255), nullable=True)
 
     token = relationship("EmergencyToken")
+
+class EmergencyQRProfile(Base):
+    __tablename__ = "emergency_qr_profiles"
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    name = Column(String(255), nullable=True)
+    phone = Column(String(50), nullable=True)
+    emergency_contact = Column(String(255), nullable=True)
+    date_of_birth = Column(String(20), nullable=True)
+    age = Column(Integer, nullable=True)
+    gender = Column(String(20), nullable=True)
+    blood_group = Column(String(10), nullable=True)
+    chronic_conditions = Column(Text, nullable=True)
+    medications = Column(Text, nullable=True)
+    surgeries = Column(Text, nullable=True)
+    allergies = Column(Text, nullable=True)
+    organ_donor_status = Column(String(10), nullable=True)
+    organ_donor_details = Column(Text, nullable=True)
+    pregnancy_status = Column(String(50), nullable=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    patient = relationship("User", foreign_keys=[patient_id])
