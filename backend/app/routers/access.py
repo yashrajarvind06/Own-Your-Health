@@ -6,17 +6,29 @@ from app.services.access_service import AccessService
 from app.deps import get_db, require_role
 from app.auth import get_current_user
 from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter()
 
 class RequestAccessModel(BaseModel):
+    model_config = {"extra": "ignore"}
+
     token: str
     patient_id: int
     report_id: str = "ALL"
-    doctor_id: int = None
+    doctor_id: Optional[int] = None
     access_context: str = "NORMAL"
-    access_reason: str = None
-    reason_note: str = None
+    access_reason: Optional[str] = None
+    reason_note: Optional[str] = None
+
+class DirectAccessRequestModel(BaseModel):
+    doctor_id: int
+    reason: str
+
+class DirectRequestResponseModel(BaseModel):
+    request_id: int
+    decision: str
+    duration: str = "15m"
 
 @router.post("/request")
 def request_access_legacy(request: Request):
@@ -56,6 +68,58 @@ def request_access(
             request_data.reason_note
         )
         return {"message": "Access request submitted", "request_id": access_request.id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/request-direct")
+def request_direct_access(
+    body: DirectAccessRequestModel,
+    user: User = Depends(require_role("patient")),
+    db: Session = Depends(get_db)
+):
+    access_service = AccessService(db)
+    try:
+        access_request = access_service.create_direct_access_request(
+            patient_id=user.id,
+            doctor_id=body.doctor_id,
+            reason=body.reason,
+        )
+        return {"message": "Access request submitted", "request_id": access_request.id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/requests/incoming")
+def list_incoming_direct_requests(
+    user: User = Depends(require_role("doctor")),
+    db: Session = Depends(get_db),
+):
+    access_service = AccessService(db)
+    direct_requests = access_service.get_doctor_direct_requests(user.id)
+    return [
+        {
+            "id": req.id,
+            "patient_id": req.patient_id,
+            "patient_name": patient.display_name or patient.email,
+            "reason": req.access_reason,
+            "created_at": req.created_at.isoformat() if req.created_at else None,
+        }
+        for req, patient in direct_requests
+    ]
+
+@router.post("/request-direct/respond")
+def respond_to_direct_request(
+    body: DirectRequestResponseModel,
+    user: User = Depends(require_role("doctor")),
+    db: Session = Depends(get_db),
+):
+    access_service = AccessService(db)
+    try:
+        return access_service.respond_to_direct_request(
+            request_id=body.request_id,
+            doctor_id=user.id,
+            decision=body.decision,
+            duration=body.duration,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

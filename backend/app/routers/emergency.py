@@ -90,6 +90,7 @@ def get_emergency_history(
         for log in logs
     ]
 
+
 @router.get("/{token}")
 def get_emergency_data(
     request: Request,

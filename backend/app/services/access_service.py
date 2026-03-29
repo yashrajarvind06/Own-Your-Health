@@ -3,14 +3,25 @@ from app.services.audit_service import AuditService
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 
-from app.models import AccessRequest, ActiveAccessSession, QRToken, AuditLog, User
+from app.models import AccessRequest, ActiveAccessSession, QRToken, AuditLog, User, DoctorInteraction, DoctorPatientAccess
+from app.services.doctor_directory import get_doctor_profile, verify_doctor
 from app.enums import AccessDenyReason, DecisionActor
 
 class AccessService:
     def __init__(self, db: Session):
         self.db = db
         self.audit_service = AuditService(db)
+
+    def _get_duration_delta(self, duration: str) -> timedelta:
+        duration_map = {
+            "15m": timedelta(minutes=15),
+            "1h": timedelta(hours=1),
+            "1d": timedelta(days=1),
+            "7d": timedelta(days=7)
+        }
+        return duration_map.get(duration, timedelta(minutes=15))
 
     def request_access(self, doctor_id: int, patient_id: int, report_id: str, token: str, access_context: str = "NORMAL", access_reason: str = None, reason_note: str = None):
         # Resolve QR Token ID
@@ -27,6 +38,7 @@ class AccessService:
             patient_id=patient_id,
             qr_token_id=qr_token_record.id,
             status="pending",
+            request_source="QR",
             access_reason=access_reason,
             reason_note=reason_note
         )
@@ -59,13 +71,7 @@ class AccessService:
             raise ValueError(f"Access request {request_id} not found. Available: {all_ids}")
 
         # Parse Duration
-        duration_map = {
-            "15m": timedelta(minutes=15),
-            "1h": timedelta(hours=1),
-            "1d": timedelta(days=1),
-            "7d": timedelta(days=7)
-        }
-        delta = duration_map.get(duration, timedelta(minutes=15)) # Safe default
+        delta = self._get_duration_delta(duration)
 
         active_session = ActiveAccessSession(
             doctor_id=access_request.doctor_id,
@@ -77,6 +83,14 @@ class AccessService:
         self.db.add(active_session)
         self.db.delete(access_request)
         self.db.commit()
+        self._activate_doctor_patient_access(
+            doctor_id=active_session.doctor_id,
+            patient_id=active_session.patient_id,
+        )
+        self.update_doctor_interaction(
+            patient_id=access_request.patient_id,
+            doctor_id=access_request.doctor_id,
+        )
 
         self.audit_service.append_event(
             event_type="ACCESS_APPROVED",
@@ -90,6 +104,250 @@ class AccessService:
         )
 
         return active_session
+
+    def create_direct_access_request(self, patient_id: int, doctor_id: int, reason: str) -> AccessRequest:
+        clean_reason = (reason or "").strip()
+        if not clean_reason:
+            raise ValueError("Reason is required")
+
+        doctor = self.db.query(User).filter(
+            User.id == doctor_id,
+            User.role == "doctor",
+        ).first()
+        if not doctor:
+            raise ValueError("Doctor not found")
+
+        if not verify_doctor(self._get_doctor_hpr_id(doctor_id)):
+            raise ValueError("Only HPR-verified doctors can request access")
+
+        if patient_id == doctor_id:
+            raise ValueError("You cannot request access from yourself")
+
+        existing_request = self.db.query(AccessRequest).filter(
+            AccessRequest.patient_id == patient_id,
+            AccessRequest.doctor_id == doctor_id,
+            AccessRequest.status.in_(["pending", "PENDING"]),
+        ).first()
+        if existing_request:
+            raise ValueError("A pending access request already exists for this doctor")
+
+        access_request = AccessRequest(
+            qr_token_id=self._get_direct_request_qr_token_id(patient_id),
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            status="pending",
+            request_source="SEARCH",
+            access_reason=clean_reason,
+            reason_note=None,
+        )
+        self.db.add(access_request)
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise ValueError("Unable to create access request")
+        self.db.refresh(access_request)
+        return access_request
+
+    def _get_doctor_hpr_id(self, doctor_id: int) -> str:
+        return get_doctor_profile(doctor_id)["hpr_id"]
+
+    def get_doctor_direct_requests(self, doctor_id: int):
+        return self.db.query(AccessRequest, User).join(
+            User, AccessRequest.patient_id == User.id
+        ).filter(
+            AccessRequest.doctor_id == doctor_id,
+            AccessRequest.request_source == "SEARCH",
+            AccessRequest.status.in_(["pending", "PENDING"]),
+        ).order_by(AccessRequest.created_at.desc()).all()
+
+    def respond_to_direct_request(self, request_id: int, doctor_id: int, decision: str, duration: str = "15m"):
+        access_request = self.db.query(AccessRequest).filter(
+            AccessRequest.id == request_id,
+            AccessRequest.doctor_id == doctor_id,
+            AccessRequest.request_source == "SEARCH",
+        ).first()
+
+        if not access_request:
+            raise ValueError("Direct access request not found")
+
+        normalized_decision = (decision or "").upper()
+        if normalized_decision not in {"APPROVED", "DENIED"}:
+            raise ValueError("Invalid decision")
+
+        if normalized_decision == "DENIED":
+            access_request.status = "DENIED"
+            self.db.commit()
+            self.audit_service.append_event(
+                event_type="ACCESS_DENIED",
+                actor_id=doctor_id,
+                actor_role="doctor",
+                patient_id=access_request.patient_id,
+                doctor_id=doctor_id,
+                report_id=None,
+                access_mode="normal",
+                reason="DOCTOR_DECLINED",
+                decision_by="DOCTOR",
+            )
+            return {"status": "DENIED"}
+
+        active_session = ActiveAccessSession(
+            doctor_id=access_request.doctor_id,
+            patient_id=access_request.patient_id,
+            expires_at=datetime.utcnow() + self._get_duration_delta(duration),
+            created_via="CONSENT"
+        )
+        self.db.add(active_session)
+        self.db.delete(access_request)
+        self.db.commit()
+        self._activate_doctor_patient_access(
+            doctor_id=active_session.doctor_id,
+            patient_id=active_session.patient_id,
+        )
+        self.update_doctor_interaction(
+            patient_id=active_session.patient_id,
+            doctor_id=active_session.doctor_id,
+        )
+        self.audit_service.append_event(
+            event_type="ACCESS_APPROVED",
+            actor_id=doctor_id,
+            actor_role="doctor",
+            patient_id=active_session.patient_id,
+            doctor_id=doctor_id,
+            report_id=None,
+            access_mode="normal",
+            access_reason=f"SEARCH_REQUEST_ACCEPTED ({duration})",
+        )
+        return {"status": "APPROVED", "session_id": active_session.id}
+
+    def _get_direct_request_qr_token_id(self, patient_id: int) -> int | None:
+        existing_token = self.db.query(QRToken).filter(
+            QRToken.patient_id == patient_id
+        ).order_by(QRToken.created_at.desc()).first()
+
+        if existing_token is not None:
+            return existing_token.id
+
+        fallback_token = QRToken(
+            token=f"search-request-{patient_id}-{int(datetime.utcnow().timestamp())}",
+            patient_id=patient_id,
+            expires_at=datetime.utcnow(),
+            revoked=True,
+        )
+        self.db.add(fallback_token)
+        self.db.flush()
+        return fallback_token.id
+
+    def update_doctor_interaction(self, patient_id: int, doctor_id: int) -> None:
+        interaction = self.db.query(DoctorInteraction).filter(
+            DoctorInteraction.patient_id == patient_id,
+            DoctorInteraction.doctor_id == doctor_id,
+        ).first()
+
+        if interaction is None:
+            interaction = DoctorInteraction(
+                patient_id=patient_id,
+                doctor_id=doctor_id,
+                interaction_count=0,
+            )
+            self.db.add(interaction)
+
+        interaction.interaction_count += 1
+        interaction.last_interacted_at = datetime.utcnow()
+        self.db.commit()
+
+    def _activate_doctor_patient_access(self, doctor_id: int, patient_id: int) -> None:
+        access = self.db.query(DoctorPatientAccess).filter(
+            DoctorPatientAccess.doctor_id == doctor_id,
+            DoctorPatientAccess.patient_id == patient_id,
+        ).first()
+
+        now = datetime.utcnow()
+        if access is None:
+            access = DoctorPatientAccess(
+                doctor_id=doctor_id,
+                patient_id=patient_id,
+                access_granted_at=now,
+                access_revoked_at=None,
+                is_active=True,
+            )
+            self.db.add(access)
+        else:
+            access.is_active = True
+            access.access_granted_at = now
+            access.access_revoked_at = None
+
+        self.db.commit()
+
+    def _deactivate_doctor_patient_access(self, doctor_id: int, patient_id: int, revoked_at: datetime | None = None) -> None:
+        access = self.db.query(DoctorPatientAccess).filter(
+            DoctorPatientAccess.doctor_id == doctor_id,
+            DoctorPatientAccess.patient_id == patient_id,
+        ).first()
+        if access is None:
+            return
+
+        access.is_active = False
+        access.access_revoked_at = revoked_at or datetime.utcnow()
+        self.db.commit()
+
+    def sync_doctor_patient_access(self, doctor_id: int) -> None:
+        now = datetime.utcnow()
+        active_pairs = {
+            (session.doctor_id, session.patient_id)
+            for session in self.db.query(ActiveAccessSession).filter(
+                ActiveAccessSession.doctor_id == doctor_id,
+                ActiveAccessSession.revoked_at.is_(None),
+                ActiveAccessSession.expires_at > now,
+            ).all()
+        }
+
+        records = self.db.query(DoctorPatientAccess).filter(
+            DoctorPatientAccess.doctor_id == doctor_id
+        ).all()
+
+        changed = False
+        for record in records:
+            should_be_active = (record.doctor_id, record.patient_id) in active_pairs
+            if should_be_active and not record.is_active:
+                record.is_active = True
+                record.access_revoked_at = None
+                changed = True
+            elif not should_be_active and record.is_active:
+                record.is_active = False
+                record.access_revoked_at = now
+                changed = True
+
+        if changed:
+            self.db.commit()
+
+    def has_doctor_patient_access(self, doctor_id: int, patient_id: int) -> bool:
+        self.sync_doctor_patient_access(doctor_id)
+        access = self.db.query(DoctorPatientAccess).filter(
+            DoctorPatientAccess.doctor_id == doctor_id,
+            DoctorPatientAccess.patient_id == patient_id,
+        ).first()
+        return access is not None
+
+    def get_doctor_active_patients(self, doctor_id: int):
+        self.sync_doctor_patient_access(doctor_id)
+        return self.db.query(DoctorPatientAccess, User).join(
+            User, DoctorPatientAccess.patient_id == User.id
+        ).filter(
+            DoctorPatientAccess.doctor_id == doctor_id,
+            DoctorPatientAccess.is_active.is_(True),
+        ).order_by(DoctorPatientAccess.access_granted_at.desc()).all()
+
+    def get_doctor_patient_history(self, doctor_id: int):
+        self.sync_doctor_patient_access(doctor_id)
+        return self.db.query(DoctorPatientAccess, User).join(
+            User, DoctorPatientAccess.patient_id == User.id
+        ).filter(
+            DoctorPatientAccess.doctor_id == doctor_id,
+        ).order_by(
+            DoctorPatientAccess.is_active.desc(),
+            DoctorPatientAccess.access_granted_at.desc(),
+        ).all()
 
     def deny_request(self, request_id: int, reason: AccessDenyReason, decision_by: DecisionActor):
         access_request = self.db.query(AccessRequest).filter(
@@ -149,6 +407,11 @@ class AccessService:
         session.revocation_reason = revocation_reason
         
         self.db.commit()
+        self._deactivate_doctor_patient_access(
+            doctor_id=doctor_id,
+            patient_id=patient_id,
+            revoked_at=now,
+        )
 
         # Log Revocation
         self.audit_service.append_event(
@@ -296,6 +559,7 @@ class AccessService:
         ).all()
 
     def get_doctor_active_sessions(self, doctor_id: int):
+        self.sync_doctor_patient_access(doctor_id)
         now = datetime.utcnow()
         output = []
 
