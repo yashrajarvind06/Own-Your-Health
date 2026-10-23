@@ -6,6 +6,7 @@ from ..models import User, ActiveAccessSession
 from ..services.report_access_service import ReportAccessService
 from ..deps import require_role
 from pydantic import BaseModel
+from app.services.family import acting_patient
 
 router = APIRouter()
 
@@ -27,7 +28,11 @@ def grant_report_access(
     service = ReportAccessService(db)
     # Verify session belongs to patient
     session = db.query(ActiveAccessSession).filter(ActiveAccessSession.id == body.session_id).first()
-    if not session or session.patient_id != user.id:
+    if not session:
+        raise HTTPException(status_code=403, detail="Invalid session")
+    try:
+        acting_patient(db, user, session.patient_id, "APPROVE_ACCESS")
+    except HTTPException:
         raise HTTPException(status_code=403, detail="Invalid session")
 
     service.grant_access(body.session_id, body.report_ids, body.duration, user.id)

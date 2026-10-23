@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
-import { useSearchParams } from "react-router-dom";
-import { Clock3, FileText, QrCode, ScanLine, ShieldCheck, Upload, UserRound } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { BadgeCheck, Clock3, Inbox, LogOut, QrCode, ScanLine, ScrollText, Search, ShieldCheck, Upload, UserRound, Users } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { api, apiForm } from "../api";
 import DoctorNotifications from "../components/DoctorNotifications";
 import { Button } from "../components/ui/Button";
-import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import DoctorReportList from "../components/DoctorReportList";
+import { PatientSummaryPanel } from "../components/DoctorRecordTools";
+import { ACCESS_PURPOSES } from "../purposes";
+import TrustPanel from "../components/TrustPanel";
 
 type ActiveSession = {
   patient_id: number;
@@ -24,32 +27,19 @@ type PatientHistoryRow = {
   is_active: boolean;
 };
 
-type Snapshot = {
-  blood_group?: string | null;
-  allergies?: string[] | string | null;
-};
+type Outgoing = { id: number; patient_id: number; patient_name: string; access_reason: string | null };
+type Summary = { age: number | null; gender: string | null; blood_group: string | null; abha_number: string | null;
+  allergies: string[]; chronic_conditions: string[]; current_medications: string[]; latest_vitals: string[] };
+type View = "patients" | "requests" | "trust";
 
-type ReportFilter = "ALL" | "UNLOCKED" | "EXPIRED" | "LOCKED";
-type ReportStatus = "UNLOCKED" | "EXPIRED" | "REVOKED" | "LOCKED";
-
-type ReportRow = {
-  id: number;
-  filename: string;
-  summary?: string | null;
-  created_at?: string;
-  uploaded_by?: "PATIENT" | "DOCTOR";
-  status: ReportStatus;
-  requested: boolean;
-};
+const purposeLabel = (code: string | null) => ACCESS_PURPOSES.find((p) => p.code === code)?.label ?? "Access";
 
 type Toast = { message: string; tone: "success" | "error" } | null;
 
-const FILTERS: { id: ReportFilter; label: string }[] = [
-  { id: "ALL", label: "All" },
-  { id: "UNLOCKED", label: "Unlocked" },
-  { id: "EXPIRED", label: "Expired" },
-  { id: "LOCKED", label: "Locked" },
-];
+// api() throws the raw response body; show FastAPI's "detail" message when there is one
+function errorText(error: any, fallback: string) {
+  try { return JSON.parse(error.message).detail || fallback; } catch { return error?.message || fallback; }
+}
 
 function fmtRemaining(seconds?: number | null) {
   if (!seconds || seconds <= 0) return "Expired";
@@ -62,21 +52,8 @@ function fmtDate(value?: string | null) {
   return value ? new Date(value).toLocaleString() : "Unknown";
 }
 
-function parseAllergies(value: Snapshot["allergies"]) {
-  if (!value) return [] as string[];
-  if (Array.isArray(value)) return value.map(String).map((v) => v.trim()).filter(Boolean);
-  return String(value).split(",").map((v) => v.trim()).filter(Boolean);
-}
-
-function statusTone(status: ReportStatus) {
-  if (status === "UNLOCKED") return "bg-emerald-100 text-emerald-700";
-  if (status === "EXPIRED") return "bg-gray-100 text-gray-600";
-  if (status === "REVOKED") return "bg-red-100 text-red-700";
-  return "bg-blue-100 text-blue-700";
-}
-
 export default function DoctorDashboard() {
-  const { user } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
   const [searchParams] = useSearchParams();
   const isVerifiedDoctor = Boolean(user?.verified);
 
@@ -88,27 +65,31 @@ export default function DoctorDashboard() {
   const [historyPatients, setHistoryPatients] = useState<PatientHistoryRow[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [reports, setReports] = useState<ReportRow[]>([]);
-  const [reportsLoading, setReportsLoading] = useState(false);
-  const [filter, setFilter] = useState<ReportFilter>("ALL");
+  const [hprInput, setHprInput] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [reportsVersion, setReportsVersion] = useState(0); // bump to reload the report list
+  const [purpose, setPurpose] = useState("TREATMENT");
+  const [recordTypes, setRecordTypes] = useState<string[]>([]);
+  const [uploadType, setUploadType] = useState("");
+  const [uploadDate, setUploadDate] = useState(new Date().toISOString().slice(0, 10));
   const [uploadPatient, setUploadPatient] = useState<{ patient_id: number; patient_name: string } | null>(null);
   const [doctorReportName, setDoctorReportName] = useState("");
   const [doctorReportFile, setDoctorReportFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [view, setView] = useState<View>("patients");
+  const [detailTab, setDetailTab] = useState<"timeline" | "snapshot">("timeline");
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
+  const [incomingCount, setIncomingCount] = useState(0);
+  const [summary, setSummary] = useState<Summary | null>(null);
 
   const selectedSession = useMemo(
     () => activeSessions.find((row) => row.patient_id === selectedPatientId) ?? null,
     [activeSessions, selectedPatientId]
   );
   const sessionActive = Boolean(selectedSession && selectedSessionId && selectedSession.remaining_seconds > 0);
-  const allergies = parseAllergies(snapshot?.allergies);
-
-  const filteredReports = useMemo(() => {
-    if (filter === "ALL") return reports;
-    if (filter === "LOCKED") return reports.filter((row) => row.status === "LOCKED" || row.status === "REVOKED");
-    return reports.filter((row) => row.status === filter);
-  }, [filter, reports]);
 
   function pushToast(message: string, tone: "success" | "error" = "success") {
     setToast({ message, tone });
@@ -151,7 +132,6 @@ export default function DoctorDashboard() {
       const row = Array.isArray(res) ? res[0] : res;
       if (!row || row.status !== "GRANTED" || !row.id) {
         setSelectedSessionId(null);
-        setReports([]);
         return null;
       }
       setSelectedSessionId(row.id);
@@ -163,103 +143,61 @@ export default function DoctorDashboard() {
     }
   }
 
-  async function loadSnapshot(patientId: number) {
-    try {
-      const res = await api(`/emergency/profile?patient_id=${patientId}`, {
-        headers: { "X-Access-Intent": "EMERGENCY_VIEW" },
-      });
-      setSnapshot({ blood_group: res?.blood_group ?? null, allergies: res?.allergies ?? null });
-    } catch {
-      setSnapshot(null);
-    }
+  async function loadOutgoing() {
+    const [out, inc] = await Promise.all([api("/access/requests/outgoing").catch(() => []), api("/access/requests/incoming").catch(() => [])]);
+    setOutgoing(Array.isArray(out) ? out : []);
+    setIncomingCount(Array.isArray(inc) ? inc.length : 0);
   }
 
-  async function loadReports(patientId: number, sessionId: number) {
-    setReportsLoading(true);
-    try {
-      const [listRes, activeRes, revokedRes, requestsRes] = await Promise.all([
-        api(`/reports/list?patient_id=${patientId}`),
-        api(`/access/reports/active?session_id=${sessionId}`),
-        api(`/access/reports/revoked?session_id=${sessionId}`),
-        api(`/access/reports/requests?session_id=${sessionId}`),
-      ]);
-      const activeIds = new Set<number>(Array.isArray(activeRes) ? activeRes.map((row: any) => Number(row.report_id)) : []);
-      const revokedIds = new Set<number>(Array.isArray(revokedRes) ? revokedRes.map((row: any) => Number(row.report_id)) : []);
-      const requestMap = new Map<number, string>();
-      if (Array.isArray(requestsRes)) {
-        requestsRes.forEach((row: any) => requestMap.set(Number(row.report_id), String(row.status || "").toUpperCase()));
-      }
-
-      const mapped: ReportRow[] = Array.isArray(listRes)
-        ? listRes.map((row: any) => {
-            const requestStatus = requestMap.get(Number(row.id));
-            let status: ReportStatus = "LOCKED";
-            if (revokedIds.has(Number(row.id))) status = "REVOKED";
-            else if (activeIds.has(Number(row.id))) status = "UNLOCKED";
-            else if (requestStatus === "APPROVED") status = "EXPIRED";
-            return {
-              id: Number(row.id),
-              filename: row.filename,
-              summary: row.summary,
-              created_at: row.created_at,
-              uploaded_by: row.uploaded_by,
-              status,
-              requested: requestStatus === "PENDING" || requestStatus === "REQUESTED",
-            };
-          })
-        : [];
-      setReports(mapped);
-    } catch (error: any) {
-      setReports([]);
-      pushToast(error.message || "Failed to load reports", "error");
-    } finally {
-      setReportsLoading(false);
-    }
+  function closeScan() {
+    setScanning(false);
+    setScanOpen(false);
   }
+
+  useEffect(() => { api("/reports/types").then(setRecordTypes).catch(() => {}); }, []);
+
+  // Cmd/Ctrl+K jumps to patient search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setView("patients"); setTimeout(() => searchRef.current?.focus()); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
+    setSummary(null);
+    if (selectedSessionId && selectedPatientId) api(`/reports/patient-summary/${selectedPatientId}`).then(setSummary).catch(() => {});
+  }, [selectedSessionId, selectedPatientId]);
+
+  useEffect(() => {
+    // Doctor endpoints answer 403 until the HPR ID is verified, so don't poll them before that
+    if (!isVerifiedDoctor) return;
     loadActiveSessions();
     loadHistoryPatients();
+    loadOutgoing();
     const interval = window.setInterval(() => {
       loadActiveSessions();
       loadHistoryPatients();
+      loadOutgoing();
     }, 5000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [isVerifiedDoctor]);
 
   useEffect(() => {
     if (!selectedPatientId) {
       setSelectedSessionId(null);
-      setSnapshot(null);
-      setReports([]);
       return;
     }
-    let cancelled = false;
-    async function refreshWorkspace() {
-      const sid = await loadSessionStatus(selectedPatientId);
-      if (cancelled || !sid) {
-        if (!cancelled) {
-          setSnapshot(null);
-          setReports([]);
-        }
-        return;
-      }
-      await Promise.all([loadSnapshot(selectedPatientId), loadReports(selectedPatientId, sid)]);
-    }
-    refreshWorkspace();
-    const interval = window.setInterval(refreshWorkspace, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
+    loadSessionStatus(selectedPatientId);
+    const interval = window.setInterval(() => loadSessionStatus(selectedPatientId), 5000);
+    return () => window.clearInterval(interval);
   }, [selectedPatientId]);
 
   useEffect(() => {
     if (!selectedPatientId) return;
     if (!activeSessions.some((row) => row.patient_id === selectedPatientId)) {
       setSelectedSessionId(null);
-      setSnapshot(null);
-      setReports([]);
       setSelectedPatientId(activeSessions[0]?.patient_id ?? null);
     }
   }, [activeSessions, selectedPatientId]);
@@ -280,13 +218,14 @@ export default function DoctorDashboard() {
           token,
           patient_id: patientId,
           access_context: "NORMAL",
-          access_reason: "FOLLOW_UP",
+          access_reason: purpose,
           reason_note: null,
         }),
       });
       setSelectedPatientId(patientId);
+      setScanOpen(false);
       pushToast("Access request sent. Waiting for patient approval.");
-      await loadActiveSessions();
+      await Promise.all([loadActiveSessions(), loadOutgoing()]);
     } catch (error: any) {
       pushToast(error.message || "Failed to request access", "error");
     } finally {
@@ -328,8 +267,6 @@ export default function DoctorDashboard() {
       if (selectedPatientId === patientId) {
         setSelectedPatientId(null);
         setSelectedSessionId(null);
-        setSnapshot(null);
-        setReports([]);
       }
       pushToast("Session ended successfully.");
       await loadActiveSessions();
@@ -339,52 +276,36 @@ export default function DoctorDashboard() {
     }
   }
 
-  async function handleOpenReport(reportId: number) {
-    if (!sessionActive) return pushToast("Session expired. Scan again to continue.", "error");
+  async function handleVerifyHpr() {
     try {
-      const res = await api("/reports/access", {
-        method: "POST",
-        body: JSON.stringify({ report_ids: [reportId], access_mode: "NORMAL" }),
-      });
-      const url = Array.isArray(res) ? res[0]?.url : null;
-      if (!url) throw new Error("Report URL unavailable");
-      window.open(url, "_blank", "noopener,noreferrer");
+      setVerifying(true);
+      await api("/user/me/registry-id", { method: "PUT", body: JSON.stringify({ registry_id: hprInput.trim() }) });
+      await refreshUser();
+      pushToast("HPR ID verified. You can now access patient records.");
     } catch (error: any) {
-      pushToast(error.message || "Failed to open report", "error");
-    }
-  }
-
-  async function handleRequestReportAccess(reportId: number) {
-    if (!selectedSessionId || !sessionActive) return pushToast("Session expired. Scan again to continue.", "error");
-    try {
-      await api("/access/reports/request", {
-        method: "POST",
-        body: JSON.stringify({ session_id: selectedSessionId, report_id: reportId, reason: "FOLLOW_UP" }),
-      });
-      setReports((current) => current.map((row) => (row.id === reportId ? { ...row, requested: true } : row)));
-      pushToast("Report access requested.");
-    } catch (error: any) {
-      pushToast(error.message || "Failed to request report access", "error");
+      pushToast(errorText(error, "Verification failed"), "error");
+    } finally {
+      setVerifying(false);
     }
   }
 
   async function handleDoctorUpload() {
-    if (!uploadPatient || !doctorReportFile || !doctorReportName.trim()) return;
+    if (!uploadPatient || !doctorReportFile) return;
     try {
       setUploading(true);
       const fd = new FormData();
       fd.append("patient_id", String(uploadPatient.patient_id));
-      fd.append("report_id", doctorReportName.trim());
       fd.append("file", doctorReportFile);
+      fd.append("record_date", uploadDate);
+      if (uploadType) fd.append("record_type", uploadType);
+      if (doctorReportName.trim()) fd.append("summary", doctorReportName.trim());
       await apiForm("/reports/upload-by-doctor", fd);
       pushToast("Report uploaded successfully.");
       setUploadPatient(null);
       setDoctorReportName("");
       setDoctorReportFile(null);
       await Promise.all([loadActiveSessions(), loadHistoryPatients()]);
-      if (selectedPatientId === uploadPatient.patient_id && selectedSessionId) {
-        await loadReports(uploadPatient.patient_id, selectedSessionId);
-      }
+      setReportsVersion((v) => v + 1);
     } catch (error: any) {
       pushToast(error.message || "Failed to upload report", "error");
     } finally {
@@ -392,246 +313,244 @@ export default function DoctorDashboard() {
     }
   }
 
+  const q = search.trim().toLowerCase();
+  const match = (name: string) => !q || name.toLowerCase().includes(q);
+  const navItem = (key: View, label: string, icon: ReactNode, badge?: number) => (
+    <button key={key} type="button" onClick={() => setView(key)} aria-current={view === key ? "page" : undefined}
+      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 ${view === key ? "bg-white text-blue-700 shadow-sm" : "text-slate-700 hover:bg-white/60"}`}>
+      {icon}<span className="flex-1">{label}</span>
+      {!!badge && <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">{badge}</span>}
+    </button>
+  );
+  const groupLabel = (text: string) => <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{text}</div>;
+  const initials = (name: string) => name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const doctorName = user?.display_name || user?.email || "Doctor";
+
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100 font-sans text-slate-900 lg:grid lg:h-screen lg:grid-cols-[232px_300px_minmax(0,1fr)] lg:overflow-hidden">
       {toast && (
-        <div className="fixed right-4 top-20 z-50">
+        <div className="fixed right-4 top-4 z-[60]" role="status">
           <div className={`rounded-xl border px-4 py-3 text-sm shadow-lg ${toast.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-700"}`}>
             {toast.message}
           </div>
         </div>
       )}
 
-      <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-bold text-gray-900">Doctor Workstation</h1>
-        {isVerifiedDoctor && (
-          <span className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-800">
-            <ShieldCheck className="h-4 w-4" />
-            Verified
-          </span>
-        )}
-      </div>
-
-      <div className={`rounded-xl border p-5 ${isVerifiedDoctor ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className={`text-sm font-semibold ${isVerifiedDoctor ? "text-emerald-800" : "text-amber-800"}`}>
-              {isVerifiedDoctor ? "Verified Professional Account" : "Verification Required"}
-            </p>
-            <h2 className={`mt-1 text-lg font-bold ${isVerifiedDoctor ? "text-emerald-900" : "text-amber-900"}`}>
-              {isVerifiedDoctor ? "Your HPR ID has been verified. You can access patient records." : "Your account is not verified with HPR."}
-            </h2>
+      {/* Sidebar: the glass navigation layer */}
+      <aside className="glass flex flex-col gap-1 border-b border-white/60 p-3 lg:m-3 lg:mr-0 lg:rounded-3xl lg:border">
+        <Link to="/" className="mb-2 flex items-center gap-2 px-3 py-2 text-lg font-extrabold tracking-tight">
+          <span style={{ color: "#1d3a8a" }}>Own</span><span className="-ml-2" style={{ color: "#00b890" }}>Your</span><span className="-ml-2" style={{ color: "#1d3a8a" }}>Health</span>
+        </Link>
+        <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Workspace">
+          {navItem("patients", "Patients", <Users className="h-5 w-5" />)}
+          {navItem("requests", "Requests", <Inbox className="h-5 w-5" />, incomingCount)}
+          {navItem("trust", "Trust score", <BadgeCheck className="h-5 w-5" />)}
+          <Link to="/doctor/logs" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium text-slate-700 hover:bg-white/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+            <ScrollText className="h-5 w-5" />Access log
+          </Link>
+          <Link to="/profile" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium text-slate-700 hover:bg-white/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+            <UserRound className="h-5 w-5" />Profile
+          </Link>
+        </nav>
+        <Button className="mt-3 w-full" onClick={() => setScanOpen(true)} disabled={!isVerifiedDoctor}>
+          <ScanLine className="mr-2 h-4 w-4" />Scan patient QR
+        </Button>
+        <div className="mt-auto hidden items-center gap-3 rounded-2xl bg-white/50 p-3 lg:flex">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{initials(doctorName)}</div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold">{doctorName}</div>
+            <div className={`text-xs ${isVerifiedDoctor ? "text-emerald-700" : "text-amber-800"}`}>{isVerifiedDoctor ? "HPR verified" : "Not verified"}</div>
           </div>
-          {!isVerifiedDoctor && <Button onClick={() => pushToast("Verification under review.")}>Verify Now</Button>}
+          <button type="button" onClick={logout} aria-label="Sign out" title="Sign out" className="rounded-lg p-2 text-slate-500 hover:bg-white hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
-      </div>
+      </aside>
 
-      <DoctorNotifications onActionComplete={() => { loadActiveSessions(); loadHistoryPatients(); }} />
-
-      <div className="grid gap-6 lg:grid-cols-[30%_70%]">
-        <div className="space-y-6">
-          <Card title="Scan Patient QR" description="Use the camera to validate a patient QR and start the access request flow.">
-            <div className="space-y-4">
-              <div className="rounded-xl border border-dashed border-blue-200 bg-blue-50/50 p-5">
-                {!scanning ? (
-                  <div className="flex flex-col items-center text-center">
-                    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-blue-600">
-                      <QrCode className="h-7 w-7" />
-                    </div>
-                    <h3 className="text-base font-semibold text-gray-900">Scan Patient QR</h3>
-                    <p className="mt-2 max-w-xs text-sm text-gray-500">QR validation and access request happen from one action flow with no manual inputs.</p>
-                    <Button className="mt-5 w-full" onClick={() => setScanning(true)} disabled={!isVerifiedDoctor || validating || requesting}>
-                      <ScanLine className="mr-2 h-4 w-4" />
-                      Start Camera Scan
-                    </Button>
-                  </div>
-                ) : (
-                  <div>
-                    <div id="doctor-qr-reader" className="w-full" />
-                    <Button variant="outline" className="mt-4 w-full" onClick={() => setScanning(false)}>Stop Scan</Button>
-                  </div>
-                )}
-              </div>
-              <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-600">
-                <div className="flex items-center gap-2 font-medium text-gray-800">
-                  <Clock3 className="h-4 w-4" />
-                  Status
-                </div>
-                <div className="mt-2">
-                  {validating ? "Validating QR code..." : requesting ? "Sending access request..." : sessionActive ? "Active session ready." : "Waiting for scan."}
-                </div>
-              </div>
-              {!isVerifiedDoctor && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  Only HPR-verified doctors can access patient data.
-                </div>
-              )}
+      {!isVerifiedDoctor ? (
+        <main className="p-4 lg:col-span-2 lg:overflow-y-auto lg:p-8">
+          <div className="mx-auto max-w-lg rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200/70">
+            <ShieldCheck className="h-8 w-8 text-amber-600" />
+            <h1 className="mt-3 text-2xl font-bold">Verify your HPR ID</h1>
+            <p className="mt-1 text-[15px] text-slate-600">Only doctors verified with the Healthcare Professionals Registry can see patient records.</p>
+            <div className="mt-4 flex gap-2">
+              <Input value={hprInput} onChange={(event) => setHprInput(event.target.value)} placeholder="HPR registration ID" aria-label="HPR registration ID" />
+              <Button onClick={handleVerifyHpr} isLoading={verifying} disabled={!hprInput.trim()}>Verify</Button>
             </div>
-          </Card>
-
-          {sessionActive && selectedSession && (
-            <Card title="Patient Snapshot" description="Quick reference for the currently active patient.">
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 text-blue-600">
-                    <UserRound className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-gray-900">{selectedSession.patient_name}</div>
-                    <div className="text-sm text-gray-500">Session live</div>
-                  </div>
-                </div>
-                <div className="rounded-xl bg-blue-50 px-4 py-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Session timer</div>
-                  <div className="mt-1 text-lg font-bold text-blue-900">{fmtRemaining(selectedSession.remaining_seconds)}</div>
-                </div>
-                {snapshot?.blood_group && (
-                  <div className="rounded-xl border border-gray-200 px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Blood group</div>
-                    <div className="mt-1 text-sm font-medium text-gray-900">{snapshot.blood_group}</div>
-                  </div>
-                )}
-                {allergies.length > 0 && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-red-700">Allergies</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {allergies.map((item) => (
-                        <span key={item} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-red-700 shadow-sm">{item}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Card>
-          )}
-        </div>
-
-        <div className="space-y-6">
-          <Card title="Active Patients" description="Real-time sessions refresh automatically every five seconds.">
-            <div className="space-y-3">
-              {activeSessions.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-                  Scan a patient QR to start a session.
-                </div>
-              ) : (
-                activeSessions.map((session) => (
-                  <div key={session.patient_id} className={`flex flex-col gap-4 rounded-xl border px-4 py-4 lg:flex-row lg:items-center lg:justify-between ${session.patient_id === selectedPatientId ? "border-blue-200 bg-blue-50/60" : "border-gray-200 bg-white"}`}>
-                    <button type="button" className="flex-1 text-left" onClick={() => setSelectedPatientId(session.patient_id)}>
-                      <div className="font-semibold text-gray-900">{session.patient_name}</div>
-                      <div className="mt-1 text-sm text-gray-500">{fmtRemaining(session.remaining_seconds)}</div>
-                    </button>
-                    <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant={session.patient_id === selectedPatientId ? "primary" : "outline"} onClick={() => setSelectedPatientId(session.patient_id)}>View Reports</Button>
-                      <Button size="sm" variant="secondary" onClick={() => setUploadPatient({ patient_id: session.patient_id, patient_name: session.patient_name })}>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Upload Report
-                      </Button>
-                      <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => handleEndSession(session.patient_id)}>
-                        End Session
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
+          </div>
+        </main>
+      ) : view === "requests" ? (
+        <main className="space-y-4 p-4 lg:col-span-2 lg:overflow-y-auto lg:p-8">
+          <h1 className="text-3xl font-bold tracking-tight">Requests</h1>
+          <p className="text-[15px] text-slate-600">Patients who found you in the directory and asked you to see their records.</p>
+          <DoctorNotifications onActionComplete={() => { loadActiveSessions(); loadHistoryPatients(); loadOutgoing(); }} />
+          {incomingCount === 0 && <div className="rounded-2xl bg-white p-8 text-center text-slate-500 ring-1 ring-slate-200/70">No requests right now.</div>}
+        </main>
+      ) : view === "trust" ? (
+        <main className="max-w-2xl space-y-4 p-4 lg:col-span-2 lg:overflow-y-auto lg:p-8">
+          <h1 className="text-3xl font-bold tracking-tight">Trust score</h1>
+          <TrustPanel />
+        </main>
+      ) : (
+        <>
+          {/* Patient list */}
+          <section className="flex flex-col p-3 lg:overflow-hidden" aria-label="Patients">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <input ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search patients" aria-label="Search patients"
+                className="w-full rounded-xl border-0 bg-white/80 py-2.5 pl-9 pr-12 text-[15px] shadow-sm ring-1 ring-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-slate-200 px-1.5 text-xs text-slate-500">⌘K</kbd>
             </div>
-          </Card>
+            <div className="mt-1 lg:flex-1 lg:overflow-y-auto">
+              {groupLabel("Active now")}
+              {activeSessions.filter((s) => match(s.patient_name)).map((s) => (
+                <button key={s.patient_id} type="button" onClick={() => setSelectedPatientId(s.patient_id)} aria-current={s.patient_id === selectedPatientId ? "true" : undefined}
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 ${s.patient_id === selectedPatientId ? "bg-blue-600 text-white" : "hover:bg-white/70"}`}>
+                  <span className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold ${s.patient_id === selectedPatientId ? "bg-white/20" : "bg-emerald-100 text-emerald-800"}`}>{initials(s.patient_name)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-semibold">{s.patient_name}</span>
+                    <span className={`block text-sm ${s.patient_id === selectedPatientId ? "text-blue-100" : "text-emerald-700"}`}>{fmtRemaining(s.remaining_seconds)}</span>
+                  </span>
+                </button>
+              ))}
+              {activeSessions.length === 0 && <p className="px-3 py-2 text-sm text-slate-500">Scan a patient's QR to start.</p>}
 
-          <Card title="Reports Workspace" description="A minimal, horizontal workspace for the selected active patient.">
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {FILTERS.map((item) => (
-                  <button key={item.id} type="button" onClick={() => setFilter(item.id)} className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${filter === item.id ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                    {item.label}
+              {outgoing.length > 0 && groupLabel("Waiting for patient")}
+              {outgoing.filter((r) => match(r.patient_name)).map((r) => (
+                <div key={r.id} className="flex items-center gap-3 px-3 py-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-800"><Clock3 className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-semibold">{r.patient_name}</span>
+                    <span className="block text-sm text-amber-800">{purposeLabel(r.access_reason)} · waiting</span>
+                  </span>
+                </div>
+              ))}
+
+              {historyPatients.length > 0 && groupLabel("Past")}
+              {historyPatients.filter((p) => match(p.patient_name)).map((p) => (
+                <div key={p.patient_id} className="group flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/70">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">{initials(p.patient_name)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-semibold">{p.patient_name}</span>
+                    <span className="block text-sm text-slate-500">{fmtDate(p.last_accessed_at)}</span>
+                  </span>
+                  <button type="button" onClick={() => setUploadPatient({ patient_id: p.patient_id, patient_name: p.patient_name })} aria-label={`Upload a report for ${p.patient_name}`} title="Upload report"
+                    className="rounded-lg p-2 text-slate-500 hover:bg-white hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+                    <Upload className="h-4 w-4" />
                   </button>
-                ))}
-              </div>
-              {!sessionActive || !selectedPatientId ? (
-                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-10 text-center text-sm text-gray-500">
-                  Select an active patient to load reports.
                 </div>
-              ) : reportsLoading ? (
-                <div className="rounded-xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-500">Loading reports...</div>
-              ) : filteredReports.length === 0 ? (
-                <div className="rounded-xl bg-gray-50 px-4 py-10 text-center text-sm text-gray-500">No reports match the selected filter.</div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredReports.map((report) => (
-                    <div key={report.id} className="flex flex-col gap-4 rounded-xl border border-gray-200 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="flex min-w-0 items-start gap-3">
-                        <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
-                          <FileText className="h-5 w-5" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-gray-900">{report.filename}</div>
-                          {report.summary && <div className="mt-1 truncate text-sm text-gray-500">{report.summary}</div>}
-                          <div className="mt-1 text-xs text-gray-400">{report.created_at ? new Date(report.created_at).toLocaleDateString() : "Date unavailable"}</div>
-                        </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Patient detail */}
+          <main className="p-4 lg:overflow-y-auto lg:py-6 lg:pl-3 lg:pr-6">
+            {!sessionActive || !selectedSession || !selectedSessionId ? (
+              <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-sm"><QrCode className="h-8 w-8 text-blue-600" /></div>
+                <h2 className="mt-4 text-xl font-bold">No patient selected</h2>
+                <p className="mt-1 max-w-sm text-[15px] text-slate-600">Scan a patient's QR. Once they approve, their records appear here.</p>
+                <Button className="mt-4" onClick={() => setScanOpen(true)}><ScanLine className="mr-2 h-4 w-4" />Scan patient QR</Button>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <header className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h1 className="text-3xl font-bold tracking-tight">{selectedSession.patient_name}</h1>
+                    <p className="mt-1 text-[15px] text-slate-600">
+                      {[summary?.age && `${summary.age} yrs`, summary?.gender, summary?.blood_group && `Blood ${summary.blood_group}`].filter(Boolean).join(" · ")}
+                      {summary?.abha_number && <span className="ml-2 text-emerald-700">ABHA {summary.abha_number} ✓</span>}
+                    </p>
+                    <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-800">
+                      <Clock3 className="h-4 w-4" />Access ends in {fmtRemaining(selectedSession.remaining_seconds).replace(" left", "")}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => setUploadPatient({ patient_id: selectedSession.patient_id, patient_name: selectedSession.patient_name })}>
+                      <Upload className="mr-2 h-4 w-4" />Upload
+                    </Button>
+                    <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => handleEndSession(selectedSession.patient_id)}>End session</Button>
+                  </div>
+                </header>
+
+                {summary && (
+                  <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    {[
+                      ["Allergies", summary.allergies, "text-red-700", "bg-red-50 ring-red-100"],
+                      ["Conditions", summary.chronic_conditions, "text-slate-900", "bg-white ring-slate-200/70"],
+                      ["Medications", summary.current_medications, "text-slate-900", "bg-white ring-slate-200/70"],
+                      ["Latest values", summary.latest_vitals, "text-slate-900", "bg-white ring-slate-200/70"],
+                    ].map(([label, values, text, box]) => (
+                      <div key={label as string} className={`rounded-2xl p-4 shadow-sm ring-1 ${box}`}>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label as string}</div>
+                        <div className={`mt-1 text-[15px] font-semibold ${text}`}>{(values as string[]).length ? (values as string[]).join(", ") : "None recorded"}</div>
                       </div>
-                      <div className="flex flex-col items-start gap-3 lg:items-end">
-                        <div className="flex items-center gap-2">
-                          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusTone(report.status)}`}>
-                            {report.status === "UNLOCKED" ? "Unlocked" : report.status === "EXPIRED" ? "Expired" : report.status === "REVOKED" ? "Revoked" : "Locked"}
-                          </span>
-                          {report.requested && report.status === "LOCKED" && (
-                            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Requested</span>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {report.status === "UNLOCKED" ? (
-                            <Button size="sm" onClick={() => handleOpenReport(report.id)} disabled={!sessionActive}>View</Button>
-                          ) : report.status === "LOCKED" ? (
-                            <Button size="sm" variant="outline" onClick={() => handleRequestReportAccess(report.id)} disabled={!sessionActive || report.requested}>
-                              {report.requested ? "Requested" : "Request Access"}
-                            </Button>
-                          ) : (
-                            <Button size="sm" variant="secondary" disabled>{report.status === "REVOKED" ? "Revoked" : "Expired"}</Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="inline-flex rounded-xl bg-slate-200/70 p-1" role="tablist" aria-label="Patient view">
+                  {(["timeline", "snapshot"] as const).map((t) => (
+                    <button key={t} type="button" role="tab" aria-selected={detailTab === t} onClick={() => setDetailTab(t)}
+                      className={`rounded-lg px-4 py-1.5 text-sm font-semibold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 ${detailTab === t ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>
+                      {t}
+                    </button>
                   ))}
                 </div>
-              )}
-            </div>
-          </Card>
 
-          <Card title="Past Patients" description="Previously accessed patients remain available for follow-up uploads.">
-            <div className="space-y-3">
-              {historyPatients.length === 0 ? (
-                <div className="rounded-xl bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">No past patients yet.</div>
-              ) : (
-                historyPatients.map((patient) => (
-                  <div key={patient.patient_id} className="flex flex-col gap-3 rounded-xl border border-gray-200 px-4 py-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <div className="font-semibold text-gray-900">{patient.patient_name}</div>
-                      <div className="mt-1 text-sm text-gray-500">Last accessed: {fmtDate(patient.last_accessed_at)}</div>
-                    </div>
-                    <Button size="sm" variant="secondary" onClick={() => setUploadPatient({ patient_id: patient.patient_id, patient_name: patient.patient_name })}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      Upload Report
-                    </Button>
-                  </div>
-                ))
-              )}
+                {detailTab === "timeline"
+                  ? <DoctorReportList key={`${selectedSessionId}-${reportsVersion}`} patientId={selectedSession.patient_id} sessionId={selectedSessionId} showSummary={false} />
+                  : <PatientSummaryPanel patientId={selectedSession.patient_id} />}
+              </div>
+            )}
+          </main>
+        </>
+      )}
+
+      {scanOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-labelledby="scan-title"
+          onKeyDown={(e) => e.key === "Escape" && closeScan()}>
+          <div className="w-full max-w-md space-y-4 rounded-3xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <button type="button" className="rounded px-1 text-blue-600 hover:underline" onClick={closeScan}>Cancel</button>
+              <h2 id="scan-title" className="font-bold">Scan patient QR</h2>
+              <span className="w-12" />
             </div>
-          </Card>
+            <label className="block text-sm font-medium text-slate-700">
+              Purpose of access
+              <select autoFocus value={purpose} onChange={(event) => setPurpose(event.target.value)} disabled={scanning} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[15px]">
+                {ACCESS_PURPOSES.map((p) => <option key={p.code} value={p.code}>{p.label}</option>)}
+              </select>
+            </label>
+            <p className="text-sm text-slate-600">The patient sees this purpose before they approve.</p>
+            {scanning ? <div id="doctor-qr-reader" className="w-full overflow-hidden rounded-2xl" /> : (
+              <Button className="w-full" onClick={() => setScanning(true)} disabled={validating || requesting}>
+                <ScanLine className="mr-2 h-4 w-4" />{validating ? "Checking QR…" : requesting ? "Sending request…" : "Start camera"}
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {uploadPatient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900">Upload Report for {uploadPatient.patient_name}</h3>
-            <p className="mt-1 text-sm text-gray-500">Reports can be uploaded for active and previously accessed patients.</p>
-            <div className="mt-4 space-y-3">
-              <Input value={doctorReportName} onChange={(event) => setDoctorReportName(event.target.value)} placeholder="Report name" />
-              <input type="file" onChange={(event) => setDoctorReportFile(event.target.files?.[0] || null)} className="block w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-labelledby="upload-title">
+          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <button type="button" className="rounded px-1 text-blue-600 hover:underline" onClick={() => { setUploadPatient(null); setDoctorReportName(""); setDoctorReportFile(null); }}>Cancel</button>
+              <h2 id="upload-title" className="font-bold">Upload report</h2>
+              <button type="button" className="rounded px-1 font-bold text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline" onClick={handleDoctorUpload} disabled={uploading || !doctorReportFile}>
+                {uploading ? "Uploading…" : "Upload"}
+              </button>
             </div>
-            <div className="mt-5 flex justify-end gap-3">
-              <Button variant="outline" onClick={() => { setUploadPatient(null); setDoctorReportName(""); setDoctorReportFile(null); }}>Cancel</Button>
-              <Button onClick={handleDoctorUpload} isLoading={uploading} disabled={uploading || !doctorReportFile || !doctorReportName.trim()}>
-                Upload Report
-              </Button>
+            <p className="mt-2 text-sm text-slate-600">For {uploadPatient.patient_name}. Shows as doctor-verified in their records.</p>
+            <div className="mt-4 space-y-3">
+              <select value={uploadType} onChange={(event) => setUploadType(event.target.value)} className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-[15px]" aria-label="Record type">
+                <option value="">Record type: detect automatically</option>
+                {recordTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <Input type="date" value={uploadDate} onChange={(event) => setUploadDate(event.target.value)} aria-label="Visit or report date" />
+              <Input value={doctorReportName} onChange={(event) => setDoctorReportName(event.target.value)} placeholder="Short clinical summary (optional)" maxLength={280} />
+              <input type="file" onChange={(event) => setDoctorReportFile(event.target.files?.[0] || null)} aria-label="Report file" className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </div>
           </div>
         </div>

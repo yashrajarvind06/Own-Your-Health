@@ -4,12 +4,14 @@ import { api } from "../api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card } from "../components/ui/Card";
+import { PATIENT_APP_URL } from "../components/PatientAppMoved";
 
 export default function Register() {
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"patient" | "doctor" | "lab">("patient");
+  const [registryId, setRegistryId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -21,7 +23,7 @@ export default function Register() {
     try {
       const res = await api("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ email, password, role, display_name: displayName }),
+        body: JSON.stringify({ email, password, role, display_name: displayName, registry_id: role === "patient" ? undefined : registryId }),
       });
       localStorage.setItem("token", res.access_token);
       localStorage.setItem("role", res.role);
@@ -30,7 +32,8 @@ export default function Register() {
       // Dispatch custom event to update Layout
       window.dispatchEvent(new Event("auth-change"));
 
-      navigate(res.role === "patient" ? "/patient" : "/doctor");
+      if (res.role === "patient") return window.location.assign(PATIENT_APP_URL); // patients use the patient app
+      navigate(({ doctor: "/doctor", lab: "/lab" } as Record<string, string>)[res.role] ?? "/");
     } catch (err: any) {
       setError(err.message || "Registration failed. Please try again.");
     } finally {
@@ -135,6 +138,17 @@ export default function Register() {
               </button>
             </div>
           </div>
+
+          {role !== "patient" && (
+            <Input
+              label={role === "doctor" ? "HPR Registration Number" : "HFR Facility ID"}
+              type="text"
+              placeholder={role === "doctor" ? "HPR1234567890" : "HFR1000000001"}
+              value={registryId}
+              onChange={e => setRegistryId(e.target.value)}
+              required
+            />
+          )}
 
           <Button className="w-full" size="lg" isLoading={loading}>
             Create Account

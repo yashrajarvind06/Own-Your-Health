@@ -5,6 +5,8 @@ from app.models import AccessRequest, ActiveAccessSession, User
 from app.services.access_service import AccessService
 from app.deps import get_db, require_role
 from app.auth import get_current_user
+from app.services.family import acting_patient, log_on_behalf
+from app.services.trust import trust_score
 from pydantic import BaseModel
 from typing import Optional
 
@@ -54,8 +56,8 @@ def request_access(
             )
         raise HTTPException(status_code=422, detail="Request Body is missing.")
 
-    if request_data.doctor_id is None:
-        request_data.doctor_id = user.id
+    # Always the caller: a client-supplied doctor_id would let one doctor request in another's name
+    request_data.doctor_id = user.id
     access_service = AccessService(db)
     try:
         access_request = access_service.request_access(
@@ -106,6 +108,18 @@ def list_incoming_direct_requests(
         for req, patient in direct_requests
     ]
 
+@router.get("/requests/outgoing")
+def list_outgoing_requests(user: User = Depends(require_role("doctor")), db: Session = Depends(get_db)):
+    # Requests this doctor sent (QR scans) that the patient hasn't answered yet
+    rows = db.query(AccessRequest, User).join(User, AccessRequest.patient_id == User.id).filter(
+        AccessRequest.doctor_id == user.id,
+        AccessRequest.status.in_(["pending", "PENDING"]),
+        (AccessRequest.request_source.is_(None)) | (AccessRequest.request_source != "SEARCH"),
+    ).order_by(AccessRequest.created_at.desc()).all()
+    return [{"id": req.id, "patient_id": req.patient_id, "patient_name": patient.display_name or patient.email,
+             "access_reason": req.access_reason, "created_at": req.created_at.isoformat() if req.created_at else None}
+            for req, patient in rows]
+
 @router.post("/request-direct/respond")
 def respond_to_direct_request(
     body: DirectRequestResponseModel,
@@ -124,10 +138,26 @@ def respond_to_direct_request(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/requests/pending")
-def list_pending_requests(patient_id: int, user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
+def list_pending_requests(patient_id: int | None = None, user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
+    # Own requests, or a family member's when the caller is their APPROVE_ACCESS delegate
+    target, _ = acting_patient(db, user, patient_id, "APPROVE_ACCESS")
     access_service = AccessService(db)
-    pending_requests = access_service.get_pending_requests(patient_id)
-    return [{"id": req.id, "doctor_id": req.doctor_id, "doctor_name": req.doctor.display_name, "patient_id": req.patient_id} for req in pending_requests]
+    pending_requests = access_service.get_pending_requests(target)
+    return [{"id": req.id, "doctor_id": req.doctor_id, "doctor_name": req.doctor.display_name, "patient_id": req.patient_id,
+             "doctor_trust": trust_score(db, req.doctor),
+             "access_reason": req.access_reason, "reason_note": req.reason_note, "created_at": req.created_at} for req in pending_requests]
+
+
+def _own_request_or_404(db: Session, request_id: int, patient: User) -> str:
+    """The request must be the caller's own or a family member's they may approve for. Returns the audit suffix."""
+    req = db.get(AccessRequest, request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    try:
+        _, link = acting_patient(db, patient, req.patient_id, "APPROVE_ACCESS")
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return log_on_behalf(db, patient, link, f"decided_access_request_{request_id}")
 
 class ApproveRequestModel(BaseModel):
     request_id: int
@@ -139,7 +169,7 @@ def approve_request(
     user: User = Depends(require_role("patient")), 
     db: Session = Depends(get_db)
 ):
-    print(f"DEBUG: Endpoint /access/approve hit with body: {body}")
+    _own_request_or_404(db, body.request_id, user)
     access_service = AccessService(db)
     try:
         active_session = access_service.approve_request(body.request_id, body.duration)
@@ -156,6 +186,7 @@ class DenyRequestModel(BaseModel):
 
 @router.post("/deny")
 def deny_request(request_id: int, body: DenyRequestModel = DenyRequestModel(), user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
+    _own_request_or_404(db, request_id, user)
     access_service = AccessService(db)
     result = access_service.deny_request(request_id, reason=body.reason, decision_by=body.decision_by)
     return result
@@ -164,12 +195,15 @@ def deny_request(request_id: int, body: DenyRequestModel = DenyRequestModel(), u
 def session_status(patient_id: int, doctor_id: int = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     access_service = AccessService(db)
     
-    # Infer Doctor ID from User if not provided
-    if doctor_id is None:
-        if user.role == "doctor":
-            doctor_id = user.id
-        else:
+    # The caller's own side of the pair always comes from the token, never the query
+    if user.role == "doctor":
+        doctor_id = user.id
+    elif user.role == "patient":
+        patient_id = user.id
+        if doctor_id is None:
             raise HTTPException(status_code=400, detail="Doctor ID is required for non-doctor users.")
+    else:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     # New Production-Grade Logic
     state = access_service.get_smart_status(doctor_id, patient_id)
@@ -186,9 +220,10 @@ def session_status(patient_id: int, doctor_id: int = None, user: User = Depends(
     }]
 
 @router.get("/session/list")
-def list_doctor_sessions(doctor_id: int, user: User = Depends(require_role("doctor")), db: Session = Depends(get_db)):
+def list_doctor_sessions(doctor_id: int | None = None, user: User = Depends(require_role("doctor")), db: Session = Depends(get_db)):
+    # doctor_id is accepted for old clients but ignored: a doctor only lists their own sessions
     access_service = AccessService(db)
-    sessions = access_service.get_all_doctor_sessions(doctor_id)
+    sessions = access_service.get_all_doctor_sessions(user.id)
     return [
         {
             "id": sess.id,
@@ -233,7 +268,8 @@ def revoke_session(
 
     elif user.role == "patient":
         source = RevocationSource.PATIENT
-        patient_id = user.id
+        patient_id, link = acting_patient(db, user, body.patient_id, "APPROVE_ACCESS")
+        log_on_behalf(db, user, link, f"revoked_doctor_{body.doctor_id}")
         doctor_id = body.doctor_id
         if not doctor_id:
              raise HTTPException(status_code=422, detail="Patients must provide doctor_id to revoke access.")
@@ -264,9 +300,10 @@ def get_active_sessions_for_doctor(user: User = Depends(require_role("doctor")),
     return sessions
 
 @router.get("/patient/active")
-def get_active_sessions_for_patient(user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
+def get_active_sessions_for_patient(patient_id: int | None = None, user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
     """
     Returns list of doctors who have active access to the patient's data.
     """
+    target, _ = acting_patient(db, user, patient_id, "APPROVE_ACCESS")
     access_service = AccessService(db)
-    return access_service.get_patient_active_sessions(user.id)
+    return access_service.get_patient_active_sessions(target)

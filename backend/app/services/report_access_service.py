@@ -19,6 +19,7 @@ class ReportAccessService:
             # Parse Duration
             duration_map = {
                 "10m": timedelta(minutes=10),
+                "15m": timedelta(minutes=15),
                 "1h": timedelta(hours=1),
                 "1d": timedelta(days=1),
                 "7d": timedelta(days=7)
@@ -30,7 +31,8 @@ class ReportAccessService:
         for rid in report_ids:
             # Check if report exists (optional but good)
             report = self.db.query(MedicalReport).filter(MedicalReport.id == rid).first()
-            if not report: continue
+            # only the session patient's own, non-deleted reports can be granted
+            if not report or report.patient_id != session.patient_id or report.deleted_at: continue
 
             # Create Access
             access = ReportAccess(

@@ -82,7 +82,7 @@ export default function DoctorSearch() {
         method: "POST",
         body: JSON.stringify({
           doctor_id: doctorId,
-          reason: "FOLLOW_UP",
+          reason: "TREATMENT",
         }),
       });
 

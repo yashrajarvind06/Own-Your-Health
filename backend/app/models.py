@@ -11,6 +11,16 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False)
     display_name = Column(String(255), nullable=True)
+    # HPR ID for doctors, HFR ID for labs; verified_at is set only after a registry match
+    registry_id = Column(String(50), unique=True, nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+    # Patient identity (docx: ABHA login, mobile OTP fallback)
+    phone = Column(String(20), unique=True, nullable=True)
+    phone_verified_at = Column(DateTime, nullable=True)
+    abha_number = Column(String(20), unique=True, nullable=True)
+    abha_address = Column(String(100), nullable=True)
+    abha_verified_at = Column(DateTime, nullable=True)
+    health_alerts_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     profile = relationship("PatientProfile", back_populates="user", uselist=False)
 
@@ -112,6 +122,14 @@ class MedicalReport(Base):
     glucose = Column(Integer, nullable=True)
     report_date = Column(DateTime, nullable=True)
     uploaded_by = Column(String(20), nullable=False, default="PATIENT")
+    uploaded_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    record_type = Column(String(50), nullable=True)
+    user_summary = Column(String(280), nullable=True)  # 1-2 lines typed by the uploader
+    weight = Column(Integer, nullable=True)
+    temperature = Column(String(10), nullable=True)
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)  # soft delete: restorable backup
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class AuditLog(Base):
@@ -211,6 +229,103 @@ class EmergencyQRProfile(Base):
     organ_donor_status = Column(String(10), nullable=True)
     organ_donor_details = Column(Text, nullable=True)
     pregnancy_status = Column(String(50), nullable=True)
+    # Random public id for the card/QR URL so cards can't be enumerated by patient id
+    card_token = Column(String(64), unique=True, nullable=True, index=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     patient = relationship("User", foreign_keys=[patient_id])
+
+
+class ReportComment(Base):
+    """Doctor-only notes on a report (docx: comments visible to doctors only)."""
+    __tablename__ = "report_comments"
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("medical_reports.id"), nullable=False, index=True)
+    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    doctor = relationship("User", foreign_keys=[doctor_id])
+
+
+class OtpCode(Base):
+    __tablename__ = "otp_codes"
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String(20), nullable=False, index=True)
+    purpose = Column(String(30), nullable=False)  # LOGIN | FAMILY_LINK
+    code_hash = Column(String(255), nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
+    expires_at = Column(DateTime, nullable=False)
+    consumed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FamilyDelegate(Base):
+    """A family member/caregiver the patient lets act for them, with explicit permissions."""
+    __tablename__ = "family_delegates"
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    relation = Column(String(50), nullable=False)
+    phone = Column(String(20), nullable=False, index=True)  # the delegate is whoever holds this verified phone
+    permissions = Column(JSON, nullable=False, default=list)  # EMERGENCY | VIEW_RECORDS | UPLOAD | APPROVE_ACCESS
+    is_primary_caregiver = Column(Boolean, nullable=False, default=False)
+    expires_at = Column(DateTime, nullable=True)  # None = permanent until revoked
+    verified_at = Column(DateTime, nullable=True)  # OTP confirmed on the member's phone
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    patient = relationship("User", foreign_keys=[patient_id])
+
+
+
+class Alert(Base):
+    """Misuse alerts shown to the patient (docx: trigger an alert, NOT a block)."""
+    __tablename__ = "alerts"
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    rule = Column(String(40), nullable=False)  # TOO_MANY_PATIENTS | ODD_HOURS | NO_ACTIVE_CONSENT | DELEGATE_OVERUSE
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    seen_at = Column(DateTime, nullable=True)
+
+
+class ShareLink(Base):
+    """Patient-made, time-limited link to chosen records (docx: give access via secured link / QR, by time and no. of reports)."""
+    __tablename__ = "share_links"
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    report_ids = Column(JSON, nullable=False, default=list)
+    note = Column(String(120), nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    view_count = Column(Integer, nullable=False, default=0)
+    last_viewed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DoctorFeedback(Base):
+    """A patient's 1-5 rating of a doctor they actually had a consent session with (one per pair, editable)."""
+    __tablename__ = "doctor_feedback"
+    id = Column(Integer, primary_key=True, index=True)
+    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    rating = Column(Integer, nullable=False)
+    comment = Column(String(280), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("doctor_id", "patient_id", name="uq_feedback_pair"),)
+
+
+class DoctorEndorsement(Base):
+    """Community verification: a verified doctor vouches for another doctor."""
+    __tablename__ = "doctor_endorsements"
+    id = Column(Integer, primary_key=True, index=True)
+    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    endorsed_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("doctor_id", "endorsed_by", name="uq_endorsement_pair"),)

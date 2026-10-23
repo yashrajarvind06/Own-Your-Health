@@ -22,3 +22,17 @@ class AccessMode(str, Enum):
 
 class AccessContext(str, Enum):
     NORMAL = "NORMAL"
+
+
+# docx: every access request must state one of these purposes
+ACCESS_PURPOSES = ("TREATMENT", "SECOND_OPINION", "EMERGENCY", "INSURANCE")
+_LEGACY_PURPOSES = {"FOLLOW_UP": "TREATMENT", "DIAGNOSTIC": "TREATMENT", "MEDICATION": "TREATMENT",
+                    "PROCEDURE": "TREATMENT", "OTHER": "TREATMENT", "EMERGENCY_EVAL": "EMERGENCY"}
+
+
+def normalize_purpose(code: str | None) -> str:
+    code = (code or "").strip().upper()
+    code = _LEGACY_PURPOSES.get(code, code)
+    if code not in ACCESS_PURPOSES:
+        raise ValueError(f"Access purpose must be one of: {', '.join(ACCESS_PURPOSES)}")
+    return code

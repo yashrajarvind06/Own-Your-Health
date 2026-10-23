@@ -1,3 +1,7 @@
+import base64
+import io
+
+import qrcode
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -46,3 +50,15 @@ def get_qr_expiry(token: str, user: User = Depends(require_role("patient")), db:
     if "error" in details:
         raise HTTPException(status_code=403, detail=details["error"])
     return details
+
+
+@router.post("/generate-image")
+def generate_qr_image(user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
+    """New doctor-scan QR as a ready-to-show PNG (base64), for clients that can't render QR codes themselves."""
+    qr_service = QRService(db)
+    token = qr_service.generate_qr_token(user.id)
+    img = qrcode.make(token, box_size=8, border=2)  # doctors' scanners read the raw token
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    details = qr_service.get_qr_token_with_ist_expiry(token)
+    return {"png_base64": base64.b64encode(buf.getvalue()).decode(), "expires_in_seconds": details.get("expiry_seconds_remaining")}

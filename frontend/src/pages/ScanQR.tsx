@@ -6,6 +6,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card } from "../components/ui/Card";
 import DoctorReportList from "../components/DoctorReportList";
+import { ACCESS_PURPOSES } from "../purposes";
 
 type EmergencyProfile = {
   blood_group?: string;
@@ -23,14 +24,6 @@ function normalizeSession(res: any) {
 }
 
 // --- Definitions ---
-const ACCESS_REASONS = [
-  { code: 'FOLLOW_UP', label: 'Follow-up consultation' },
-  { code: 'DIAGNOSTIC', label: 'Diagnostic review' },
-  { code: 'MEDICATION', label: 'Medication review' },
-  { code: 'PROCEDURE', label: 'Procedure preparation' },
-  { code: 'EMERGENCY_EVAL', label: 'Emergency evaluation' },
-  { code: 'OTHER', label: 'Other (requires note)' }
-];
 
 interface ScanQRProps {
   initialPatientId?: number | null;
@@ -71,7 +64,6 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
   const confirmAccessRequest = async () => {
     setError(null);
     if (!selectedReason) return setError("Please select a reason for access.");
-    if (selectedReason === 'OTHER' && !reasonNote.trim()) return setError("Please provide a note for 'Other'.");
 
     try {
       // Normal Access Request with Reason (Body Payload)
@@ -254,14 +246,14 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
                 onChange={(e) => setSelectedReason(e.target.value)}
               >
                 <option value="">-- Select --</option>
-                {ACCESS_REASONS.map(r => (
+                {ACCESS_PURPOSES.map(r => (
                   <option key={r.code} value={r.code}>{r.label}</option>
                 ))}
               </select>
             </div>
-            {selectedReason === 'OTHER' && (
+            {selectedReason && (
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Explanation Note <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700">Note for the patient (optional)</label>
                 <textarea
                   className="w-full border-gray-300 rounded-lg p-2 text-sm h-24"
                   placeholder="Details..."
@@ -272,7 +264,7 @@ export default function ScanQR({ initialPatientId }: ScanQRProps) {
             )}
             <div className="flex gap-3 pt-4">
               <Button variant="outline" className="flex-1" onClick={() => setShowReasonModal(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={confirmAccessRequest} disabled={!selectedReason || (selectedReason === 'OTHER' && !reasonNote.trim())}>
+              <Button className="flex-1" onClick={confirmAccessRequest} disabled={!selectedReason}>
                 Confirm Request
               </Button>
             </div>

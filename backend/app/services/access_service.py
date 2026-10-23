@@ -6,8 +6,7 @@ from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 
 from app.models import AccessRequest, ActiveAccessSession, QRToken, AuditLog, User, DoctorInteraction, DoctorPatientAccess
-from app.services.doctor_directory import get_doctor_profile, verify_doctor
-from app.enums import AccessDenyReason, DecisionActor
+from app.enums import normalize_purpose, AccessDenyReason, DecisionActor
 
 class AccessService:
     def __init__(self, db: Session):
@@ -29,9 +28,8 @@ class AccessService:
         if not qr_token_record:
              raise ValueError("Invalid QR Token")
 
-        # Guardrail: Reason is Mandatory
-        if not access_reason or not access_reason.strip():
-            raise ValueError("Access Reason is mandatory.")
+        # Guardrail: purpose is mandatory and must be one the patient can understand
+        access_reason = normalize_purpose(access_reason)
 
         access_request = AccessRequest(
             doctor_id=doctor_id,
@@ -106,9 +104,7 @@ class AccessService:
         return active_session
 
     def create_direct_access_request(self, patient_id: int, doctor_id: int, reason: str) -> AccessRequest:
-        clean_reason = (reason or "").strip()
-        if not clean_reason:
-            raise ValueError("Reason is required")
+        clean_reason = normalize_purpose(reason)
 
         doctor = self.db.query(User).filter(
             User.id == doctor_id,
@@ -117,7 +113,7 @@ class AccessService:
         if not doctor:
             raise ValueError("Doctor not found")
 
-        if not verify_doctor(self._get_doctor_hpr_id(doctor_id)):
+        if not doctor.verified_at:
             raise ValueError("Only HPR-verified doctors can request access")
 
         if patient_id == doctor_id:
@@ -148,9 +144,6 @@ class AccessService:
             raise ValueError("Unable to create access request")
         self.db.refresh(access_request)
         return access_request
-
-    def _get_doctor_hpr_id(self, doctor_id: int) -> str:
-        return get_doctor_profile(doctor_id)["hpr_id"]
 
     def get_doctor_direct_requests(self, doctor_id: int):
         return self.db.query(AccessRequest, User).join(
@@ -326,6 +319,7 @@ class AccessService:
         access = self.db.query(DoctorPatientAccess).filter(
             DoctorPatientAccess.doctor_id == doctor_id,
             DoctorPatientAccess.patient_id == patient_id,
+            DoctorPatientAccess.is_active.is_(True),  # revoked/expired pairs keep a history row
         ).first()
         return access is not None
 
@@ -580,8 +574,8 @@ class AccessService:
             if remaining < 0:
                 continue 
             
-            if patient and patient.email:
-                p_name = patient.email
+            if patient and (patient.display_name or patient.email):
+                p_name = patient.display_name or patient.email
             else:
                 p_name = f"Patient {session.patient_id}"
 

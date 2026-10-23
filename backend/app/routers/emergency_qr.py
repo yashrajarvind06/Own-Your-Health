@@ -1,5 +1,6 @@
 import io
 import os
+import secrets
 from html import escape
 from typing import Optional
 
@@ -33,9 +34,15 @@ class EmergencyQRSaveRequest(BaseModel):
     pregnancy_status: Optional[str] = None
 
 
-def _ecard_url(patient_id: int) -> str:
+def _ecard_url(card_token: str) -> str:
     base = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
-    return f"{base}/api/emergency-qr/card/{patient_id}"
+    return f"{base}/api/emergency-qr/card/{card_token}"
+
+
+def _ensure_card_token(profile: EmergencyQRProfile) -> str:
+    if not profile.card_token:
+        profile.card_token = secrets.token_urlsafe(24)
+    return profile.card_token
 
 
 @router.post("/save")
@@ -66,10 +73,11 @@ def save_emergency_qr_profile(
     profile.organ_donor_status = payload.organ_donor_status
     profile.organ_donor_details = payload.organ_donor_details
     profile.pregnancy_status = payload.pregnancy_status
+    _ensure_card_token(profile)
 
     db.commit()
     db.refresh(profile)
-    return {"patient_id": user.id, "message": "Saved successfully"}
+    return {"patient_id": user.id, "card_token": profile.card_token, "message": "Saved successfully"}
 
 
 @router.get("/me")
@@ -83,10 +91,14 @@ def get_my_qr_profile(
 
     if not profile:
         return {"exists": False}
+    if not profile.card_token:  # profiles saved before card tokens existed
+        _ensure_card_token(profile)
+        db.commit()
 
     return {
         "exists": True,
         "patient_id": user.id,
+        "card_token": profile.card_token,
         "name": profile.name,
         "phone": profile.phone,
         "emergency_contact": profile.emergency_contact,
@@ -104,10 +116,10 @@ def get_my_qr_profile(
     }
 
 
-@router.get("/card/{patient_id}", response_class=HTMLResponse)
-def get_ecard(patient_id: int, db: Session = Depends(get_db)):
+@router.get("/card/{card_token}", response_class=HTMLResponse)
+def get_ecard(card_token: str, db: Session = Depends(get_db)):
     profile = db.query(EmergencyQRProfile).filter(
-        EmergencyQRProfile.patient_id == patient_id
+        EmergencyQRProfile.card_token == card_token
     ).first()
 
     if not profile:
@@ -116,10 +128,10 @@ def get_ecard(patient_id: int, db: Session = Depends(get_db)):
     return HTMLResponse(content=_build_ecard_html(profile), status_code=200)
 
 
-@router.get("/qr/{patient_id}")
-def get_qr(patient_id: int, db: Session = Depends(get_db)):
+@router.get("/qr/{card_token}")
+def get_qr(card_token: str, db: Session = Depends(get_db)):
     profile = db.query(EmergencyQRProfile).filter(
-        EmergencyQRProfile.patient_id == patient_id
+        EmergencyQRProfile.card_token == card_token
     ).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Emergency profile not found. Save it first.")
@@ -130,7 +142,7 @@ def get_qr(patient_id: int, db: Session = Depends(get_db)):
         box_size=10,
         border=4,
     )
-    qr.add_data(_ecard_url(patient_id))
+    qr.add_data(_ecard_url(card_token))
     qr.make(fit=True)
     img = qr.make_image(fill_color="#8b1e1e", back_color="white")
 

@@ -7,6 +7,7 @@ class RegisterRequest(BaseModel):
     password: str
     display_name: Optional[str] = None
     role: Literal["patient", "doctor", "lab"]
+    registry_id: Optional[str] = None  # HPR ID (doctor) / HFR ID (lab), required for those roles
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -46,7 +47,17 @@ class UserProfileResponse(BaseModel):
     email: EmailStr
     role: str
     verified: bool = False
-    hpr_id: Optional[str] = None
+    hpr_id: Optional[str] = None  # registry ID: HPR for doctors, HFR for labs
+    registry_profile: Optional[dict] = None
+    phone: Optional[str] = None
+    phone_verified: bool = False
+    abha_number: Optional[str] = None
+    abha_address: Optional[str] = None
+    abha_verified: bool = False
+    health_alerts_enabled: bool = False
+
+class LinkRegistryRequest(BaseModel):
+    registry_id: str
 
 class UpdateUserProfileRequest(BaseModel):
     display_name: str

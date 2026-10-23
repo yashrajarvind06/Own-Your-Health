@@ -1,0 +1,15 @@
+{
+  "name": "OwnYourHealth",
+  "short_name": "OwnYourHealth",
+  "description": "Your health records, your control",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f8fd",
+  "theme_color": "#1a73e8",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "OwnYourHealth",
+    "slug": "ownyourhealth",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "name": "OwnYourHealth",
+      "shortName": "OwnYourHealth",
+      "themeColor": "#1a73e8",
+      "backgroundColor": "#f4f8fd"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "scheme": "ownyourhealth",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

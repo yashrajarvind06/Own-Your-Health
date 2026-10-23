@@ -5,6 +5,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card } from "../components/ui/Card";
 import { useAuth } from "../context/AuthContext";
+import { PATIENT_APP_URL } from "../components/PatientAppMoved";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -31,7 +32,8 @@ export default function Login() {
         role: res.role
       });
 
-      navigate(res.role === "patient" ? "/patient" : "/doctor");
+      if (res.role === "patient") return window.location.assign(PATIENT_APP_URL); // patients use the patient app
+      navigate(({ doctor: "/doctor", lab: "/lab" } as Record<string, string>)[res.role] ?? "/");
     } catch (err: any) {
       setError(err.message || "Login failed. Please check your credentials.");
     } finally {

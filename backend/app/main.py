@@ -1,6 +1,14 @@
 import os
+import sys
+
+# OCR debug prints carry arbitrary text; on Windows a cp1252 console/log would crash the request on it
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
+from pathlib import Path
+from .services.file_urls import resolve_signed
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine, get_db
@@ -8,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from fastapi import Depends
 from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, doctors
-from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, emergency_qr
+from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, emergency_qr, family, fhir, alerts, share
 
 
 def create_app() -> FastAPI:
@@ -26,6 +34,17 @@ def create_app() -> FastAPI:
         try:
             with engine.connect() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)"))
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS registry_id VARCHAR(50)"))
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_registry_id ON users (registry_id)"))
+                for col in ("phone VARCHAR(20)", "phone_verified_at TIMESTAMP", "abha_number VARCHAR(20)", "abha_address VARCHAR(100)",
+                            "abha_verified_at TIMESTAMP", "health_alerts_enabled BOOLEAN DEFAULT FALSE NOT NULL"):
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col}"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_phone ON users (phone)"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_abha ON users (abha_number)"))
+                for col in ("uploaded_by_user_id INTEGER REFERENCES users(id)", "record_type VARCHAR(50)", "user_summary VARCHAR(280)", "weight INTEGER",
+                            "temperature VARCHAR(10)", "reviewed_by INTEGER REFERENCES users(id)", "reviewed_at TIMESTAMP", "deleted_at TIMESTAMP"):
+                    conn.execute(text(f"ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS {col}"))
                 conn.execute(text("ALTER TABLE active_access_sessions ADD COLUMN IF NOT EXISTS created_via VARCHAR(50) DEFAULT 'CONSENT' NOT NULL"))
                 conn.execute(text("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS access_reason VARCHAR(50) DEFAULT 'UNKNOWN'"))
                 conn.execute(text("ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS reason_note TEXT"))
@@ -69,6 +88,8 @@ def create_app() -> FastAPI:
                 conn.execute(text("ALTER TABLE emergency_qr_profiles ADD COLUMN IF NOT EXISTS organ_donor_status VARCHAR(10)"))
                 conn.execute(text("ALTER TABLE emergency_qr_profiles ADD COLUMN IF NOT EXISTS organ_donor_details TEXT"))
                 conn.execute(text("ALTER TABLE emergency_qr_profiles ADD COLUMN IF NOT EXISTS pregnancy_status VARCHAR(50)"))
+                conn.execute(text("ALTER TABLE emergency_qr_profiles ADD COLUMN IF NOT EXISTS card_token VARCHAR(64)"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_emergency_card_token ON emergency_qr_profiles (card_token)"))
                 conn.commit()
                 print("SUCCESS: schema migrations applied.")
         except Exception as mig_err:
@@ -87,7 +108,14 @@ def create_app() -> FastAPI:
     )
 
     os.makedirs("storage", exist_ok=True)
-    app.mount("/api/static", StaticFiles(directory="storage"), name="static")
+
+    # Report files are only reachable through short-lived signed links (see services/file_urls.py)
+    @app.get("/api/files/{key:path}")
+    def get_signed_file(key: str, exp: int, sig: str):
+        path = resolve_signed(key, exp, sig)
+        if not path:
+            raise HTTPException(status_code=403, detail="Link expired or invalid")
+        return FileResponse(path)
 
     app.include_router(auth.router, prefix="/auth", tags=["auth"])
     app.include_router(qr.router, prefix="/qr", tags=["qr"])
@@ -98,14 +126,15 @@ def create_app() -> FastAPI:
     app.include_router(logs.router, prefix="/logs", tags=["logs"])
     app.include_router(users.router, prefix="/user", tags=["user"])
     app.include_router(doctors.router, tags=["doctors"])
+    app.include_router(family.router, prefix="/family", tags=["family"])
+    app.include_router(fhir.router, prefix="/fhir", tags=["fhir"])
+    app.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
+    # not "/share": that path is the PWA's share screen, and API routes win over page loads
+    app.include_router(share.router, prefix="/share-links", tags=["share"])
     # app.include_router(access_profile.router, prefix="/patient", tags=["patient_access_profile"]) # Not found in fs
     app.include_router(patient_history.router, prefix="/patient/access", tags=["patient_history"])
     app.include_router(patient_report_log.router, prefix="/patient/reports", tags=["patient_report_log"])
     app.include_router(report_access.router, prefix="/access/reports", tags=["report_access"])
-
-    @app.get("/")
-    def read_root():
-        return {"message": "Backend is running successfully!"}
 
     @app.get("/health/db")
     def check_db(db: Session = Depends(get_db)):
@@ -115,6 +144,25 @@ def create_app() -> FastAPI:
             return {"status": "ok", "database": "connected"}
         except Exception as e:
             return {"status": "error", "database": str(e)}
+
+    # Patient PWA (built with `npm run build:web` in mobile/), served on the API's own origin.
+    # Registered last: only paths no API route matched get here.
+    web_dir = Path(os.getenv("WEB_APP_DIR", Path(__file__).resolve().parents[2] / "mobile" / "dist")).resolve()
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def patient_web_app(path: str, request: Request):
+        if not (web_dir / "index.html").is_file():
+            if path == "":
+                return {"message": "Backend is running successfully!"}
+            raise HTTPException(status_code=404, detail="Not Found")
+        file = (web_dir / path).resolve()
+        if path and web_dir in file.parents and file.is_file():
+            return FileResponse(file)
+        # App routes (/records, /family/21…) are client-side, but only page loads get the shell:
+        # /family and /access are API prefixes too, so an unknown API call must still 404.
+        if "text/html" not in request.headers.get("accept", ""):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(web_dir / "index.html")
 
     return app
 

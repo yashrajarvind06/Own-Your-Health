@@ -104,6 +104,8 @@ def parse_date(date_str: str) -> datetime | None:
 
 def extract_bp(text: str) -> tuple[int | None, int | None]:
     match = re.search(r"(\d{2,3})\s*/\s*(\d{2,3})", text)
+    if not match:  # reports that list "systolic bp: 168 ... diastolic bp: 102" separately
+        match = re.search(r"systolic[^\d]{0,20}(\d{2,3}).{0,60}?diastolic[^\d]{0,20}(\d{2,3})", text)
     if match:
         sys = int(match.group(1))
         dia = int(match.group(2))
@@ -130,6 +132,24 @@ def extract_glucose(text: str) -> int | None:
     return None
 
 
+def extract_weight(text: str) -> int | None:
+    match = re.search(r"weight[^\d]{0,20}(\d{2,3})(?:\.\d+)?\s*kg", text)
+    if match:
+        val = int(match.group(1))
+        if 2 <= val <= 300:
+            return val
+    return None
+
+
+def extract_temperature(text: str) -> str | None:
+    match = re.search(r"(?:temp|temperature)[^\d]{0,20}(\d{2,3}(?:\.\d)?)", text)
+    if match:
+        val = float(match.group(1))
+        if 34 <= val <= 43 or 93 <= val <= 109:  # celsius or fahrenheit
+            return match.group(1)
+    return None
+
+
 def extract_structured_data(cleaned_text: str) -> dict[str, int | None]:
     bp_systolic, bp_diastolic = extract_bp(cleaned_text)
     heart_rate = extract_heart_rate(cleaned_text)
@@ -139,6 +159,8 @@ def extract_structured_data(cleaned_text: str) -> dict[str, int | None]:
         "bp_diastolic": bp_diastolic,
         "heart_rate": heart_rate,
         "glucose": glucose,
+        "weight": extract_weight(cleaned_text),
+        "temperature": extract_temperature(cleaned_text),
     }
     print("FINAL STRUCTURED DATA:", data)
     return data
@@ -319,6 +341,8 @@ def extract_report_data(file_path: str, mime_type: str | None) -> dict[str, obje
         "bp_diastolic": structured.get("bp_diastolic"),
         "heart_rate": structured.get("heart_rate"),
         "glucose": structured.get("glucose"),
+        "weight": structured.get("weight"),
+        "temperature": structured.get("temperature"),
         "summary": summary,
         "report_type": report_type,
         "condition": condition,

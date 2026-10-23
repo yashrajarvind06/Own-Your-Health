@@ -1,23 +1,27 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
 import { Button } from "./ui/Button";
-import { Lock, FileText, CheckCircle, XCircle, Clock, Trash2, Timer, Ban } from "lucide-react";
+import { Lock, FileText, XCircle, Clock, Timer, Ban } from "lucide-react";
+import { ACCESS_PURPOSES } from "../purposes";
+import { CompareModal, PatientSummaryPanel, ReportNotes, TrustBadge, type CompareItem } from "./DoctorRecordTools";
 
 type ReportStatus = "LOCKED" | "UNLOCKED" | "PENDING" | "DENIED" | "REVOKED" | "EXPIRED";
 
 interface DoctorReportListProps {
     patientId: number;
     sessionId: number;
+    showSummary?: boolean; // the dashboard shows the snapshot in its own card
 }
 
-type ReportItem = {
-    id: number;
-    filename: string;
+type ReportItem = CompareItem & {
     created_at?: string;
-    uploaded_by?: "PATIENT" | "DOCTOR";
+    uploaded_by?: "PATIENT" | "DOCTOR" | "LAB";
+    trust_badge?: string;
+    reviewed_at?: string | null;
+    relevant?: boolean;
 };
 
-export default function DoctorReportList({ patientId, sessionId }: DoctorReportListProps) {
+export default function DoctorReportList({ patientId, sessionId, showSummary = true }: DoctorReportListProps) {
     const [reports, setReports] = useState<ReportItem[]>([]);
     const [accessMap, setAccessMap] = useState<Record<number, ReportStatus>>({});
 
@@ -30,7 +34,12 @@ export default function DoctorReportList({ patientId, sessionId }: DoctorReportL
     // Modal State
     const [selectedReport, setSelectedReport] = useState<any>(null);
     const [isRequestOpen, setIsRequestOpen] = useState(false);
-    const [accessReason, setAccessReason] = useState("FOLLOW_UP");
+    const [accessReason, setAccessReason] = useState("TREATMENT");
+    const [showOlder, setShowOlder] = useState(false);
+    const [compareIds, setCompareIds] = useState<number[]>([]);
+    const [comparing, setComparing] = useState(false);
+    const [selectedId, setSelectedId] = useState<number | null>(null);
+    const [compareMode, setCompareMode] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -167,172 +176,148 @@ export default function DoctorReportList({ patientId, sessionId }: DoctorReportL
         return mins > 0 ? `${mins}m` : "Expiring...";
     };
 
-    if (loading) return <div className="p-4 text-center text-gray-500">Loading reports...</div>;
-    if (error) return <div className="p-4 text-center text-red-500 text-sm">Error: {error}</div>;
-    if (reports.length === 0) return <div className="p-8 text-center text-gray-400">No medical reports found.</div>;
+    if (loading) return <div className="p-6 text-center text-sm text-slate-500">Loading records…</div>;
+    if (error) return <div className="p-6 text-center text-sm text-red-600">Couldn't load records: {error}</div>;
+    if (reports.length === 0) return <div className="space-y-3">{showSummary && <PatientSummaryPanel patientId={patientId} />}<div className="rounded-2xl bg-white p-8 text-center text-slate-500 ring-1 ring-slate-200/70">This patient has no records yet.</div></div>;
+
+    // docx relevance decay: old records sink, fade and need a click to expand
+    const current = reports.filter(r => r.relevant !== false);
+    const older = reports.filter(r => r.relevant === false);
+    const toggleCompare = (id: number) =>
+        setCompareIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id].slice(-2));
+    const selected = reports.find(r => r.id === selectedId) ?? null;
+    const selectedStatus: ReportStatus = selected ? accessMap[selected.id] || "LOCKED" : "LOCKED";
+    const askAccess = (r: ReportItem) => { setSelectedReport(r); setIsRequestOpen(true); };
+
+    const renderReport = (r: ReportItem, faded: boolean, last: boolean) => {
+        const status = accessMap[r.id] || "LOCKED";
+        const accessInfo = activeAccessData[r.id];
+        const temp = status === "UNLOCKED" && accessInfo?.access_type === "TEMPORARY";
+        const pill = STATUS_PILL[status];
+        const isSel = selectedId === r.id;
+        const pick = () => (compareMode ? status === "UNLOCKED" && toggleCompare(r.id) : setSelectedId(r.id));
+        return (
+            <div key={r.id} role="button" tabIndex={0} aria-pressed={isSel} onClick={pick}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } }}
+                className={`flex cursor-pointer items-start gap-3 px-4 py-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${isSel ? "bg-blue-50" : "hover:bg-slate-50"} ${last ? "" : "border-b border-slate-100"} ${faded ? "opacity-60" : ""}`}>
+                {compareMode && (
+                    <input type="checkbox" className="mt-2.5 h-4 w-4 accent-blue-600" disabled={status !== "UNLOCKED"} aria-label={`Compare ${r.record_type || r.filename}`}
+                        checked={compareIds.includes(r.id)} readOnly tabIndex={-1} />
+                )}
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><FileText size={18} /></div>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate font-semibold text-slate-900">{r.record_type || r.filename}</span>
+                        <span className="shrink-0 text-xs text-slate-500">{(r.record_date || r.created_at || "").split("T")[0]}</span>
+                    </div>
+                    <div className="truncate text-sm text-slate-600">{r.one_line_summary || r.filename}</div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${pill.cls}`}>
+                            {temp ? <Timer size={12} /> : pill.icon}{temp ? `Temporary · ${getTimeRemaining(accessInfo?.expires_at || "")}` : pill.label}
+                        </span>
+                        <TrustBadge badge={r.trust_badge} />
+                    </div>
+                </div>
+                {status === "LOCKED" && !compareMode && (
+                    <Button size="sm" variant="outline" onClick={e => { e.stopPropagation(); askAccess(r); }}>Request</Button>
+                )}
+            </div>
+        );
+    };
+
+    const vitals = Object.entries(selected?.vitals ?? {}).filter(([, v]) => v !== null && v !== "");
 
     return (
         <div className="space-y-3">
-            {reports.map(r => {
-                const status = accessMap[r.id] || "LOCKED";
-
-                // Determine Visual Filters
-                // Only show Yellow if status UNLOCKED AND Type is TEMPORARY
-                const accessInfo = activeAccessData[r.id];
-                const isTemp = accessInfo?.access_type === "TEMPORARY";
-
-                const isTempUnlocked = status === 'UNLOCKED' && isTemp;
-                const isStandardUnlocked = status === 'UNLOCKED' && !isTemp;
-
-                const expiry = (isTempUnlocked || isStandardUnlocked) ? accessInfo?.expires_at : null;
-                const timeRemaining = getTimeRemaining(expiry || "");
-
-                // Logic for Container Classes
-                let containerClasses = "bg-white border-gray-200";
-                if (isTempUnlocked) containerClasses = "bg-yellow-50 border-yellow-200 shadow-sm";
-                else if (isStandardUnlocked) containerClasses = "bg-green-50 border-green-200 shadow-sm";
-                else if (status === 'REVOKED') containerClasses = "bg-red-50 border-red-200";
-                else if (status === 'EXPIRED') containerClasses = "bg-gray-50 border-gray-200 opacity-75"; // Grey for Expired
-
-                // Logic for Icon Container
-                let iconContainerClasses = "bg-gray-100 text-gray-400";
-                if (isTempUnlocked) iconContainerClasses = "bg-yellow-100 text-yellow-600";
-                else if (isStandardUnlocked) iconContainerClasses = "bg-green-100 text-green-600";
-                else if (status === 'REVOKED') iconContainerClasses = "bg-red-100 text-red-500";
-                else if (status === 'EXPIRED') iconContainerClasses = "bg-gray-200 text-gray-500";
-
-                return (
-                    <div key={r.id} className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${containerClasses}`}>
-                        <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${iconContainerClasses}`}>
-                                {isTempUnlocked || isStandardUnlocked ? <FileText size={20} /> :
-                                    status === 'REVOKED' ? <XCircle size={20} /> :
-                                        status === 'EXPIRED' ? <Clock size={20} /> :
-                                            <Lock size={20} />}
-                            </div>
-                            <div>
-                                <div className="font-medium text-gray-900 flex items-center gap-2">
-                                    {r.filename}
-                                    {isTempUnlocked && (
-                                        <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                                            Temp Access
-                                        </span>
-                                    )}
-                                    {isStandardUnlocked && (
-                                        <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                                            Unlocked
-                                        </span>
-                                    )}
-                                    {status === 'EXPIRED' && (
-                                        <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
-                                            Expired
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="text-xs text-gray-500">
-                                    {r.created_at ? r.created_at.split('T')[0] : 'Date Unknown'}
-                                </div>
-                                <div className={`mt-1 text-xs ${r.uploaded_by === "DOCTOR" ? "text-green-600" : "text-yellow-600"}`}>
-                                    {r.uploaded_by === "DOCTOR" ? "🟢 Verified Doctor" : "🟡 Patient Uploaded"}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div>
-                            {status === 'UNLOCKED' && (
-                                <div className="flex items-center gap-2">
-                                    {isTempUnlocked && (
-                                        <div className="text-xs font-mono font-medium text-yellow-700 bg-yellow-100/50 px-2 py-1.5 rounded flex items-center gap-1">
-                                            <Timer size={12} />
-                                            {timeRemaining}
-                                        </div>
-                                    )}
-                                    <Button size="sm" className={
-                                        isTempUnlocked ? "bg-yellow-500 hover:bg-yellow-600 border-yellow-600 text-white shadow-sm" :
-                                            "bg-green-600 hover:bg-green-700 border-green-600 text-white shadow-sm"
-                                    } onClick={() => openReport(r.id)}>
-                                        View
-                                    </Button>
-                                </div>
-                            )}
-                            {status === 'LOCKED' && (
-                                <Button size="sm" onClick={() => {
-                                    setSelectedReport(r);
-                                    setIsRequestOpen(true);
-                                }}>Request Access</Button>
-                            )}
-                            {status === 'PENDING' && (
-                                <Button size="sm" variant="secondary" disabled className="opacity-75 cursor-not-allowed">
-                                    <Clock size={14} className="mr-1 inline" /> Pending
-                                </Button>
-                            )}
-                            {status === 'DENIED' && (
-                                <Button size="sm" variant="danger" disabled className="opacity-75 cursor-not-allowed">
-                                    <XCircle size={14} className="mr-1 inline" /> Denied
-                                </Button>
-                            )}
-                            {status === 'REVOKED' && (
-                                <Button size="sm" variant="outline" disabled className="opacity-60 cursor-not-allowed border-red-200 text-red-500">
-                                    <XCircle size={14} className="mr-1 inline" /> Revoked
-                                </Button>
-                            )}
-                            {status === 'EXPIRED' && (
-                                <Button size="sm" variant="outline" disabled className="opacity-60 cursor-not-allowed border-gray-200 text-gray-400">
-                                    <Ban size={14} className="mr-1 inline" /> Expired
-                                </Button>
-                            )}
-                        </div>
+            {showSummary && <PatientSummaryPanel patientId={patientId} />}
+            <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-slate-500">{reports.length} record{reports.length > 1 ? "s" : ""} · newest first</span>
+                <div className="flex items-center gap-2">
+                    {compareMode && <Button size="sm" disabled={compareIds.length !== 2} onClick={() => setComparing(true)}>Compare {compareIds.length}/2</Button>}
+                    <Button size="sm" variant="outline" onClick={() => { setCompareMode(!compareMode); setCompareIds([]); }}>{compareMode ? "Done" : "Select to compare"}</Button>
+                </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+                <div className="space-y-3">
+                    <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+                        {current.map((r, i) => renderReport(r, false, i === current.length - 1))}
+                        {current.length === 0 && <div className="p-4 text-sm text-slate-500">No recent records.</div>}
                     </div>
-                );
-            })}
+                    {older.length > 0 && (
+                        <button className="w-full rounded-lg py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500" onClick={() => setShowOlder(!showOlder)}>
+                            {showOlder ? "Hide" : "Show"} {older.length} older · less relevant
+                        </button>
+                    )}
+                    {showOlder && older.length > 0 && (
+                        <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">{older.map((r, i) => renderReport(r, true, i === older.length - 1))}</div>
+                    )}
+                </div>
 
-            {/* Request Modal */}
+                {/* Inspector: the selected record's values and doctor-only notes */}
+                <aside className="h-fit rounded-2xl bg-white p-4 text-sm shadow-sm ring-1 ring-slate-200/70 xl:sticky xl:top-4" aria-label="Record details">
+                    {!selected ? (
+                        <div className="py-10 text-center text-slate-500">Select a record to see its values and your notes.</div>
+                    ) : (
+                        <div className="space-y-3">
+                            <div>
+                                <div className="text-base font-bold text-slate-900">{selected.record_type || selected.filename}</div>
+                                <div className="break-all text-slate-500">{(selected.record_date || selected.created_at || "").split("T")[0]} · {selected.filename}</div>
+                            </div>
+                            <TrustBadge badge={selected.trust_badge} />
+                            {selected.one_line_summary && <p className="text-slate-700">{selected.one_line_summary}</p>}
+                            {vitals.length > 0 && (
+                                <dl className="divide-y divide-slate-100 rounded-xl bg-slate-50">
+                                    {vitals.map(([k, v]) => (
+                                        <div key={k} className="flex justify-between gap-3 px-3 py-2"><dt className="capitalize text-slate-500">{k.replace(/_/g, " ")}</dt><dd className="font-semibold text-slate-900">{v}</dd></div>
+                                    ))}
+                                </dl>
+                            )}
+                            {selectedStatus === "UNLOCKED" ? (
+                                <>
+                                    <Button className="w-full" onClick={() => openReport(selected.id)}>Open file</Button>
+                                    <ReportNotes reportId={selected.id} reviewed={!!selected.reviewed_at} onReviewed={loadData} />
+                                </>
+                            ) : selectedStatus === "LOCKED" ? (
+                                <Button className="w-full" variant="outline" onClick={() => askAccess(selected)}>Request access to this record</Button>
+                            ) : (
+                                <div className="rounded-lg bg-slate-50 p-3 text-slate-600">{STATUS_PILL[selectedStatus].label} — the file isn't available in this session.</div>
+                            )}
+                        </div>
+                    )}
+                </aside>
+            </div>
+            {comparing && <CompareModal items={reports.filter(r => compareIds.includes(r.id))} onClose={() => setComparing(false)} />}
+
             {isRequestOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-                    <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
-                        <h3 className="text-lg font-bold text-gray-900">Request Access</h3>
-
-                        <div className="bg-yellow-50 p-3 rounded-lg space-y-2 text-sm border border-yellow-100">
-                            <div className="flex justify-between">
-                                <span className="text-gray-500">Report:</span>
-                                <span className="font-medium">{selectedReport?.filename}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-500">Type:</span>
-                                <span className="font-bold text-yellow-700">Temporary Request</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-500">Duration:</span>
-                                <span className="font-bold text-yellow-700">10 Minutes (Fixed)</span>
-                            </div>
-                            <p className="text-xs text-yellow-600 pt-1">
-                                <Clock size={12} className="inline mr-1" />
-                                Access expires automatically. 1-request limit per session.
-                            </p>
+                <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-labelledby="req-title"
+                    onKeyDown={e => e.key === "Escape" && setIsRequestOpen(false)}>
+                    <div className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-5 shadow-2xl">
+                        <div className="flex items-center justify-between">
+                            <button className="rounded px-1 text-blue-600 hover:underline" onClick={() => setIsRequestOpen(false)}>Cancel</button>
+                            <h3 id="req-title" className="font-bold text-slate-900">Request access</h3>
+                            <button className="rounded px-1 font-bold text-blue-600 hover:underline" onClick={handleRequestAccess}>Send</button>
                         </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-700">Reason</label>
-                            <select
-                                className="w-full border-gray-300 rounded-lg text-sm p-2 bg-gray-50"
-                                value={accessReason}
-                                onChange={e => setAccessReason(e.target.value)}
-                            >
-                                <option value="FOLLOW_UP">Follow-up consultation</option>
-                                <option value="DIAGNOSTIC">Diagnostic review</option>
-                                <option value="MEDICATION">Medication review</option>
-                                <option value="PROCEDURE">Procedure pre-check</option>
-                                <option value="OTHER">Other</option>
+                        <p className="text-sm text-slate-600">
+                            <span className="font-semibold text-slate-900">{selectedReport?.record_type || selectedReport?.filename}</span><br />
+                            <Clock size={12} className="mr-1 inline" />Temporary access that expires automatically. The patient sees your purpose.
+                        </p>
+                        <label className="block text-sm font-medium text-slate-700">Purpose
+                            <select autoFocus className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm" value={accessReason} onChange={e => setAccessReason(e.target.value)}>
+                                {ACCESS_PURPOSES.map(p => <option key={p.code} value={p.code}>{p.label}</option>)}
                             </select>
-                        </div>
-
-                        <div className="flex gap-3 pt-2">
-                            <Button variant="outline" className="flex-1" onClick={() => setIsRequestOpen(false)}>Cancel</Button>
-                            <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleRequestAccess}>Send Request</Button>
-                        </div>
+                        </label>
                     </div>
                 </div>
             )}
         </div>
     );
 }
+
+const STATUS_PILL: Record<ReportStatus, { label: string; cls: string; icon: JSX.Element }> = {
+    UNLOCKED: { label: "Open", cls: "bg-emerald-50 text-emerald-700", icon: <FileText size={12} /> },
+    LOCKED: { label: "Locked", cls: "bg-slate-100 text-slate-600", icon: <Lock size={12} /> },
+    PENDING: { label: "Requested", cls: "bg-amber-50 text-amber-800", icon: <Clock size={12} /> },
+    DENIED: { label: "Denied", cls: "bg-red-50 text-red-700", icon: <XCircle size={12} /> },
+    REVOKED: { label: "Revoked", cls: "bg-red-50 text-red-700", icon: <Ban size={12} /> },
+    EXPIRED: { label: "Expired", cls: "bg-slate-100 text-slate-500", icon: <Timer size={12} /> },
+};

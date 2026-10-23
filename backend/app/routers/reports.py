@@ -1,309 +1,244 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
-from sqlalchemy.orm import Session
-from hashlib import sha256
-import boto3
-import os
-import shutil
-import tempfile
-from pathlib import Path
-from datetime import datetime
-from ..database import SessionLocal
-from ..models import MedicalReport, AuditLog, User, ActiveAccessSession, AccessLog, ReportAccess, ReportAccessRequest
-from app.deps import require_role, get_db
-from app.auth import get_current_user
-from ..blockchain import store_hash_on_chain
-from datetime import datetime as dt
-from app.services.log_service import LogService
-from app.services.access_service import AccessService
-from app.services.report_extraction import extract_report_data
-from app.services.doctor_directory import get_doctor_profile, verify_doctor
+from datetime import date, datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
-from typing import List
+from sqlalchemy.orm import Session
+
+from app.auth import get_current_user
+from app.deps import get_db, require_role
+from app.models import ActiveAccessSession, AuditLog, MedicalReport, ReportAccess, ReportAccessRequest, ReportComment, User
+from app.services.access_service import AccessService
+from app.services.family import acting_patient, log_on_behalf
+from app.services.file_urls import file_url
+from app.services.log_service import LogService
+from app.services.registry import normalize_abha
+from app.services.assistant import answer as assistant_answer
+from app.services.records import RECORD_TYPES, health_insights, patient_summary, serialize, store_report
+from app.services.report_access_service import ReportAccessService
+from app.services.misuse import record_denied_doctor_access, record_doctor_access
 
 router = APIRouter()
+dt = datetime
 
-def delete_stored_file(file_key: str) -> None:
-    s3, bucket = get_s3()
-    if s3 and bucket:
-        try:
-            s3.delete_object(Bucket=bucket, Key=file_key)
-        except Exception:
-            pass
-        return
 
-    local_path = Path("storage") / file_key
-    if local_path.exists():
-        local_path.unlink()
+def _patient_report(db: Session, patient_id: int, report_id: int) -> MedicalReport:
+    r = db.query(MedicalReport).filter(MedicalReport.id == report_id, MedicalReport.patient_id == patient_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return r
 
-def get_s3():
-    key = os.getenv("AWS_ACCESS_KEY_ID")
-    secret = os.getenv("AWS_SECRET_ACCESS_KEY")
-    bucket = os.getenv("S3_BUCKET")
-    region = os.getenv("AWS_REGION", "us-east-1")
-    if not key or not secret or not bucket:
-        return None, None
-    s3 = boto3.client("s3", aws_access_key_id=key, aws_secret_access_key=secret, region_name=region)
-    return s3, bucket
+
+def _doctor_report(db: Session, doctor: User, report_id: int) -> MedicalReport:
+    """A report the doctor may act on: the patient has an active session with them."""
+    r = db.get(MedicalReport, report_id)
+    if not r or r.deleted_at or not AccessService(db).has_doctor_patient_access(doctor.id, r.patient_id):
+        raise HTTPException(status_code=404, detail="Report not found or no active access")
+    return r
+
+
+@router.get("/types")
+def record_types():
+    return RECORD_TYPES
+
 
 @router.post("/upload")
-def upload_report(report_id: str = Form(...), file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    print(f"DEBUG: Upload Request - User: {user.id}, ReportID: {report_id}, Filename: {file.filename}") # Debug Log
-    if user.role not in {"patient", "doctor"}:
-        raise HTTPException(status_code=403, detail="Only patients and verified doctors can upload reports")
-
-    uploaded_by = "PATIENT"
-    if user.role == "doctor":
-        hpr_id = get_doctor_profile(user.id)["hpr_id"]
-        if not verify_doctor(hpr_id):
-            raise HTTPException(status_code=403, detail="Only verified doctors can upload as doctor")
-        uploaded_by = "DOCTOR"
-
-    data = file.file.read()
-    digest = sha256(data).hexdigest()
-    s3, bucket = get_s3()
-    
-    key = f"reports/{user.id}/{datetime.utcnow().timestamp()}_{file.filename}"
-    
-    if s3:
-        s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=file.content_type)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename or "").suffix) as temp_file:
-            temp_file.write(data)
-            temp_path = temp_file.name
-    else:
-        # Local fallback
-        local_dir = Path("storage") / key
-        local_dir.parent.mkdir(parents=True, exist_ok=True)
-        with open(local_dir, "wb") as f:
-            f.write(data)
-        temp_path = str(local_dir)
-
-    extraction_result = extract_report_data(temp_path, file.content_type)
-    extracted_text = extraction_result["raw_text"]
-    summary = extraction_result["summary"]
-    report_date = extraction_result.get("report_date")
-    print("OCR DEBUG START")
-    print("FILE PATH:", temp_path)
-    print("RAW TEXT:", extracted_text[:500])
-    print("TEXT LENGTH:", len(extracted_text))
-    print("STRUCTURED DATA:", extraction_result)
-    print("OCR DATE:", extraction_result.get("report_date_str"))
-    print("PARSED DATE:", report_date)
-    print("OCR DEBUG END")
-    if s3 and os.path.exists(temp_path):
-        os.remove(temp_path)
-            
-    tx_hash = store_hash_on_chain(digest, report_id) or ""
-    rec = MedicalReport(
-        patient_id=user.id,
-        filename=file.filename,
-        mime_type=file.content_type or "application/octet-stream",
-        file_key=key,
-        sha256_hash=digest,
-        report_id=report_id,
-        blockchain_tx=tx_hash,
-        extracted_text=extracted_text,
-        summary=summary,
-        uploaded_by=uploaded_by,
-    )
-    rec.bp_systolic = extraction_result.get("bp_systolic")
-    rec.bp_diastolic = extraction_result.get("bp_diastolic")
-    rec.heart_rate = extraction_result.get("heart_rate")
-    rec.glucose = extraction_result.get("glucose")
-    rec.report_date = report_date
-    print("DB SAVE VALUES:", rec.bp_systolic, rec.bp_diastolic, rec.heart_rate, rec.glucose)
-    db.add(rec)
-    db.add(AuditLog(actor_user_id=user.id, patient_id=user.id, details=f"Action: upload_report, ID: {report_id}"))
-    db.commit()
-    db.refresh(rec)
-    return {"id": rec.id, "sha256": digest, "blockchain_tx": tx_hash}
+def upload_report(
+    file: UploadFile = File(...),
+    record_type: Optional[str] = Form(None),
+    record_date: Optional[date] = Form(None),
+    summary: Optional[str] = Form(None),
+    report_id: Optional[str] = Form(None),
+    patient_id: Optional[int] = Form(None),  # set by a family delegate uploading for someone
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    target, link = acting_patient(db, user, patient_id, "UPLOAD")
+    note = log_on_behalf(db, user, link, "upload_report")
+    rec = store_report(db, patient_id=target, uploader=user, uploaded_by="PATIENT", file=file, record_type=record_type,
+                       record_date=record_date, summary=summary, report_id=report_id, on_behalf_note=note)
+    return serialize(rec)
 
 
 @router.post("/upload-by-doctor")
-def upload_report_by_doctor(
-    patient_id: int = Form(...),
-    report_id: str = Form(...),
+@router.post("/upload-by-lab")
+def upload_report_by_provider(
+    patient_id: Optional[int] = Form(None),
+    abha_number: Optional[str] = Form(None),  # labs usually know the patient by ABHA
     file: UploadFile = File(...),
-    user: User = Depends(require_role("doctor")),
+    record_type: Optional[str] = Form(None),
+    record_date: Optional[date] = Form(None),
+    summary: Optional[str] = Form(None),
+    report_id: Optional[str] = Form(None),
+    user: User = Depends(require_role("doctor", "lab")),
     db: Session = Depends(get_db),
 ):
-    hpr_id = get_doctor_profile(user.id)["hpr_id"]
-    if not verify_doctor(hpr_id):
-        raise HTTPException(status_code=403, detail="Only verified doctors can upload as doctor")
-
-    access_service = AccessService(db)
-    if not access_service.has_doctor_patient_access(user.id, patient_id):
+    # require_role already rejects doctors/labs without a registry match
+    if abha_number:
+        match = db.query(User).filter(User.abha_number == normalize_abha(abha_number), User.role == "patient").first()
+        if not match:
+            raise HTTPException(status_code=404, detail="No patient has linked this ABHA number")
+        patient_id = match.id
+    if patient_id is None:
+        raise HTTPException(status_code=422, detail="Give the patient ID or ABHA number")
+    if user.role == "doctor" and not AccessService(db).has_doctor_patient_access(user.id, patient_id):
         raise HTTPException(status_code=403, detail="Doctor has no access to this patient")
+    # shortcut: a verified lab can upload for any existing patient ID (write-only, tagged LAB);
+    # add a patient-issued lab order/QR check when the lab flow is built.
+    if user.role == "lab" and not db.query(User).filter(User.id == patient_id, User.role == "patient").first():
+        raise HTTPException(status_code=404, detail="Patient not found")
+    rec = store_report(db, patient_id=patient_id, uploader=user, uploaded_by=user.role.upper(), file=file,
+                       record_type=record_type or ("Lab Report" if user.role == "lab" else None),
+                       record_date=record_date, summary=summary, report_id=report_id)
+    return serialize(rec, with_url=False)
 
-    data = file.file.read()
-    digest = sha256(data).hexdigest()
-    s3, bucket = get_s3()
-    key = f"reports/{patient_id}/{datetime.utcnow().timestamp()}_{file.filename}"
-
-    if s3:
-        s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=file.content_type)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename or "").suffix) as temp_file:
-            temp_file.write(data)
-            temp_path = temp_file.name
-    else:
-        local_dir = Path("storage") / key
-        local_dir.parent.mkdir(parents=True, exist_ok=True)
-        with open(local_dir, "wb") as f:
-            f.write(data)
-        temp_path = str(local_dir)
-
-    extraction_result = extract_report_data(temp_path, file.content_type)
-    extracted_text = extraction_result["raw_text"]
-    summary = extraction_result["summary"]
-    report_date = extraction_result.get("report_date")
-    if s3 and os.path.exists(temp_path):
-        os.remove(temp_path)
-
-    tx_hash = store_hash_on_chain(digest, report_id) or ""
-    rec = MedicalReport(
-        patient_id=patient_id,
-        filename=file.filename,
-        mime_type=file.content_type or "application/octet-stream",
-        file_key=key,
-        sha256_hash=digest,
-        report_id=report_id,
-        blockchain_tx=tx_hash,
-        extracted_text=extracted_text,
-        summary=summary,
-        uploaded_by="DOCTOR",
-    )
-    rec.bp_systolic = extraction_result.get("bp_systolic")
-    rec.bp_diastolic = extraction_result.get("bp_diastolic")
-    rec.heart_rate = extraction_result.get("heart_rate")
-    rec.glucose = extraction_result.get("glucose")
-    rec.report_date = report_date
-    db.add(rec)
-    db.add(AuditLog(actor_user_id=user.id, patient_id=patient_id, details=f"Action: upload_report_by_doctor, ID: {report_id}"))
-    db.commit()
-    db.refresh(rec)
-    return {"id": rec.id, "sha256": digest, "blockchain_tx": tx_hash}
 
 @router.get("/my")
-def my_reports(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    items = db.query(MedicalReport).filter(MedicalReport.patient_id == user.id).all()
-    items.sort(key=lambda report: (0 if report.uploaded_by == "DOCTOR" else 1, report.created_at or datetime.min))
-    s3, bucket = get_s3()
-    
-    def presigned(key: str):
-        if s3 and bucket:
-            try:
-                return s3.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=300)
-            except Exception:
-                return None
-        else:
-            return f"/api/static/{key}"
-
-    out = []
-    for r in items:
-        out.append({
-            "id": r.id,
-            "filename": r.filename,
-            "mime_type": r.mime_type,
-            "sha256_hash": r.sha256_hash,
-            "blockchain_tx": r.blockchain_tx,
-            "report_id": r.report_id,
-            "summary": r.summary,
-            "uploaded_by": r.uploaded_by,
-            "presigned_url": presigned(r.file_key),
-            "created_at": r.created_at
-        })
+def my_reports(patient_id: Optional[int] = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Timeline for the patient (or a family member they are a VIEW_RECORDS delegate of), newest first."""
+    target, link = acting_patient(db, user, patient_id, "VIEW_RECORDS")
+    log_on_behalf(db, user, link, "view_records")
+    items = db.query(MedicalReport).filter(MedicalReport.patient_id == target, MedicalReport.deleted_at.is_(None)).all()
+    out = [serialize(r) for r in items]
+    out.sort(key=lambda r: r["record_date"], reverse=True)
     return out
 
+
+@router.get("/summary")
+def my_summary(patient_id: Optional[int] = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    target, _ = acting_patient(db, user, patient_id, "VIEW_RECORDS")
+    return patient_summary(db, db.get(User, target))
+
+
+@router.get("/insights")
+def my_insights(patient_id: Optional[int] = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Pattern alerts, only when the patient switched them on (docx: only if the patient wants)."""
+    target, _ = acting_patient(db, user, patient_id, "VIEW_RECORDS")
+    patient = db.get(User, target)
+    return {"enabled": patient.health_alerts_enabled, "alerts": health_insights(db, patient) if patient.health_alerts_enabled else []}
+
+
+class AskBody(BaseModel):
+    question: str
+    patient_id: Optional[int] = None
+
+
+@router.post("/ask")
+def ask(body: AskBody, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Records chatbot: answers from the patient's own data only."""
+    if not body.question.strip() or len(body.question) > 300:
+        raise HTTPException(status_code=422, detail="Ask a question of up to 300 characters")
+    target, link = acting_patient(db, user, body.patient_id, "VIEW_RECORDS")
+    log_on_behalf(db, user, link, "view_records_via_assistant")
+    return assistant_answer(db, db.get(User, target), body.question)
+
+
+@router.get("/patient-summary/{patient_id}")
+def doctor_patient_summary(patient_id: int, doctor: User = Depends(require_role("doctor")), db: Session = Depends(get_db)):
+    if not AccessService(db).has_doctor_patient_access(doctor.id, patient_id):
+        record_denied_doctor_access(db, doctor, patient_id, "health summary")
+        raise HTTPException(status_code=403, detail="No active access to this patient")
+    record_doctor_access(db, doctor, patient_id, "health summary")
+    return patient_summary(db, db.get(User, patient_id))
+
+
+@router.get("/deleted")
+def deleted_reports(user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
+    items = db.query(MedicalReport).filter(MedicalReport.patient_id == user.id, MedicalReport.deleted_at.isnot(None)).all()
+    return [serialize(r, with_url=False) for r in items]
+
+
+@router.post("/{report_id}/restore")
+def restore_report(report_id: int, user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
+    r = _patient_report(db, user.id, report_id)
+    r.deleted_at = None
+    db.add(AuditLog(actor_user_id=user.id, patient_id=user.id, details=f"Action: restore_report, ID: {r.report_id}"))
+    db.commit()
+    return serialize(r)
+
+
 @router.get("/trends/{patient_id}")
-def get_report_trends(
-    patient_id: int,
-    user: User = Depends(require_role("patient")),
-    db: Session = Depends(get_db),
-):
-    if user.id != patient_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    reports = db.query(MedicalReport).filter(
-        MedicalReport.patient_id == patient_id
-    ).all()
-
+def get_report_trends(patient_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    target, _ = acting_patient(db, user, patient_id, "VIEW_RECORDS")
+    reports = db.query(MedicalReport).filter(MedicalReport.patient_id == target, MedicalReport.deleted_at.is_(None)).all()
+    keys = ("bp_systolic", "bp_diastolic", "heart_rate", "glucose", "weight", "temperature")
     rows = []
-    for report in reports:
-        bp_systolic = int(report.bp_systolic) if report.bp_systolic is not None else None
-        bp_diastolic = int(report.bp_diastolic) if report.bp_diastolic is not None else None
-        heart_rate = int(report.heart_rate) if report.heart_rate is not None else None
-        glucose = int(report.glucose) if report.glucose is not None else None
-
-        if report.report_date is None:
-            continue
-
-        if not any(value is not None for value in [bp_systolic, bp_diastolic, heart_rate, glucose]):
-            continue
-
-        rows.append({
-            "date": report.report_date.strftime("%Y-%m-%d"),
-            "bp_systolic": bp_systolic,
-            "bp_diastolic": bp_diastolic,
-            "heart_rate": heart_rate,
-            "glucose": glucose,
-        })
-
-    rows.sort(key=lambda row: row["date"] or "")
-    print("TRENDS API OUTPUT:", rows)
+    for r in reports:
+        when = r.report_date or r.created_at
+        values = {k: getattr(r, k) for k in keys}
+        if when and any(v is not None for v in values.values()):
+            rows.append({"date": when.strftime("%Y-%m-%d"), "report_id": r.id, **values})
+    rows.sort(key=lambda row: row["date"])
     return rows
+
 
 @router.delete("/{report_id}")
 def delete_report(report_id: int, user: User = Depends(require_role("patient")), db: Session = Depends(get_db)):
-    report = db.query(MedicalReport).filter(MedicalReport.id == report_id).first()
-
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-
-    if report.patient_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    delete_stored_file(report.file_key)
+    """Soft delete: hidden everywhere and doctor grants revoked, but restorable from /reports/deleted."""
+    report = _patient_report(db, user.id, report_id)
+    report.deleted_at = datetime.utcnow()
     db.query(ReportAccessRequest).filter(ReportAccessRequest.report_id == report.id).delete()
-    db.query(ReportAccess).filter(ReportAccess.report_id == report.id).delete()
-    db.delete(report)
+    db.query(ReportAccess).filter(ReportAccess.report_id == report.id, ReportAccess.revoked_at.is_(None)).update({"revoked_at": datetime.utcnow()})
     db.add(AuditLog(actor_user_id=user.id, patient_id=user.id, details=f"Action: delete_report, ID: {report.report_id}"))
     db.commit()
+    return {"message": "Report moved to deleted items. You can restore it."}
 
-    return {"message": "Report deleted successfully"}
 
 @router.get("/list")
 def list_reports(patient_id: int, doctor: User = Depends(require_role("doctor")), db: Session = Depends(get_db)):
-    # RELAXED CHECK: We allow listing reports even without a session
-    # This enables the "Locked" view so doctors can Request Access.
-    # We DO NOT generate presigned URLs here, so it is safe.
-    
-    s3, bucket = get_s3()
-    items = db.query(MedicalReport).filter(MedicalReport.patient_id == patient_id).all()
-    items.sort(key=lambda report: (0 if report.uploaded_by == "DOCTOR" else 1, report.created_at or datetime.min))
-    
+    # Listing is allowed without a session so doctors see what to request (the "locked" view).
+    # No file URLs here; clinical text only once the patient has granted access.
+    has_access = AccessService(db).has_doctor_patient_access(doctor.id, patient_id)
+    record_doctor_access(db, doctor, patient_id, "profile")
+    items = db.query(MedicalReport).filter(MedicalReport.patient_id == patient_id, MedicalReport.deleted_at.is_(None)).all()
     out = []
     for r in items:
-        # NOTICE: We NO LONGER generate presigned_url here.
-        # This prevents "implicit access" just by listing files.
-        # User must call /reports/access to view, which triggers an audit log.
-        out.append({
-            "id": r.id,
-            "filename": r.filename,
-            "mime_type": r.mime_type,
-            "sha256_hash": r.sha256_hash,
-            "blockchain_tx": r.blockchain_tx,
-            "summary": r.summary,
-            "uploaded_by": r.uploaded_by,
-            "presigned_url": None, # Explicitly null to force use of access endpoint
-            "created_at": r.created_at # CRITICAL for Frontend Date Display
-        })
-    
+        row = serialize(r, with_url=False)
+        if not has_access:
+            for k in ("summary", "user_summary", "one_line_summary", "vitals"):
+                row[k] = None
+        out.append(row)
+    out.sort(key=lambda r: r["record_date"], reverse=True)
     return out
+
+
+@router.post("/{report_id}/review")
+def mark_reviewed(report_id: int, doctor: User = Depends(require_role("doctor")), db: Session = Depends(get_db)):
+    r = _doctor_report(db, doctor, report_id)
+    r.reviewed_by, r.reviewed_at = doctor.id, datetime.utcnow()
+    db.add(AuditLog(actor_user_id=doctor.id, patient_id=r.patient_id, details=f"Action: review_report, ID: {r.report_id}, Doctor: {doctor.id}"))
+    db.commit()
+    return serialize(r, with_url=False)
+
+
+class CommentBody(BaseModel):
+    body: str
+
+
+@router.get("/{report_id}/comments")
+def list_comments(report_id: int, doctor: User = Depends(require_role("doctor")), db: Session = Depends(get_db)):
+    r = _doctor_report(db, doctor, report_id)
+    rows = db.query(ReportComment).filter(ReportComment.report_id == r.id).order_by(ReportComment.created_at).all()
+    return [{"id": c.id, "body": c.body, "doctor_id": c.doctor_id, "doctor_name": c.doctor.display_name if c.doctor else None,
+             "created_at": c.created_at.isoformat()} for c in rows]
+
+
+@router.post("/{report_id}/comments")
+def add_comment(report_id: int, body: CommentBody, doctor: User = Depends(require_role("doctor")), db: Session = Depends(get_db)):
+    r = _doctor_report(db, doctor, report_id)
+    text = body.body.strip()
+    if not text or len(text) > 2000:
+        raise HTTPException(status_code=422, detail="Comment must be 1-2000 characters")
+    c = ReportComment(report_id=r.id, doctor_id=doctor.id, body=text)
+    db.add(c)
+    db.commit()
+    return {"id": c.id, "body": c.body, "doctor_id": doctor.id, "doctor_name": doctor.display_name, "created_at": c.created_at.isoformat()}
+
 
 class ReportAccessRequestBody(BaseModel):
     report_ids: List[int]
-    access_mode: str = "NORMAL" # NORMAL or EMERGENCY
+    access_mode: str = "NORMAL"  # NORMAL or EMERGENCY
 
-from ..services.report_access_service import ReportAccessService
 
 @router.post("/access")
 def access_reports(
@@ -323,7 +258,7 @@ def access_reports(
     if not body.report_ids:
         return []
 
-    reports = db.query(MedicalReport).filter(MedicalReport.id.in_(body.report_ids)).all()
+    reports = db.query(MedicalReport).filter(MedicalReport.id.in_(body.report_ids), MedicalReport.deleted_at.is_(None)).all()
     if not reports:
         raise HTTPException(status_code=404, detail="Reports not found")
 
@@ -333,10 +268,12 @@ def access_reports(
     session = db.query(ActiveAccessSession).filter(
         ActiveAccessSession.doctor_id == doctor.id,
         ActiveAccessSession.patient_id == patient_id,
+        ActiveAccessSession.revoked_at.is_(None),
         ActiveAccessSession.expires_at > dt.utcnow()
     ).first()
 
     if not session:
+        record_denied_doctor_access(db, doctor, patient_id, "records")
         raise HTTPException(status_code=403, detail="No active session. Please request access.")
 
     # FINE-GRAINED CHECK
@@ -357,44 +294,13 @@ def access_reports(
     # ... (rest of logic) ...
 
 
-    # 2. Generate URLs
-    s3, bucket = get_s3()
-    from urllib.parse import quote
-
-    def presigned(key: str, patient_id: int):
-        if s3 and bucket:
-            try:
-                return s3.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=300)
-            except Exception:
-                return None
-        else:
-            # Local Storage Logic
-            # Normalize key to be just filename if we are constructing path manually
-            # BUT some keys might actually be `reports/4/file.png` in DB.
-            
-            final_path = ""
-            if key.startswith("reports/") or f"/{patient_id}/" in key:
-                 # Assume key is full relative path from storage root
-                 final_path = key
-            else:
-                 # Key is filename, construct path
-                 final_path = f"reports/{patient_id}/{key}"
-            
-            # URL Encode the path segments (but not the slashes)
-            # Split by / and encode parts
-            parts = final_path.split("/")
-            encoded_parts = [quote(p) for p in parts]
-            encoded_path = "/".join(encoded_parts)
-
-            return f"/api/static/{encoded_path}"
-
     results = []
     filenames = []
     for r in reports:
         if r.patient_id != patient_id: 
             continue # Skip mixed-patient hacks
             
-        url = presigned(r.file_key, r.patient_id)
+        url = file_url(r.file_key)
         results.append({
             "id": r.id,
             "url": url
@@ -414,5 +320,6 @@ def access_reports(
         access_mode="NORMAL" # body.access_mode.upper() - Force NORMAL for now as access_reports is context unaware slightly
     )
     AccessService(db).update_doctor_interaction(patient_id=patient_id, doctor_id=doctor.id)
+    record_doctor_access(db, doctor, patient_id, "records")
     
     return results

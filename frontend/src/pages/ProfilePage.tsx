@@ -4,6 +4,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 
 // --- Icons ---
 const Icons = {
@@ -33,6 +34,7 @@ interface UserProfile {
 }
 
 export default function ProfilePage() {
+    const { refreshUser } = useAuth();
     const [user, setUser] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -95,15 +97,29 @@ export default function ProfilePage() {
     if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
     if (!user) return <div className="p-8 text-center">User not found.</div>;
 
-    const isDoctor = user.role === "doctor";
+    // Doctors verify with HPR, labs with HFR; both use the same registry-ID endpoint
+    const isDoctor = user.role === "doctor" || user.role === "lab";
+    const registry = user.role === "lab" ? "HFR" : "HPR";
     const isVerifiedDoctor = isDoctor && Boolean(user.verified);
     // Badge Label
     const badgeLabel = isDoctor ? "Doctor Account" : "Patient Account";
     const BadgeIcon = isDoctor ? Icons.DoctorBadge : Icons.PatientBadge;
 
-    function handleVerifyNow() {
-        setVerificationMessage("Verification under review");
-        setTimeout(() => setVerificationMessage(""), 3000);
+    async function handleVerifyNow() {
+        if (!editHprId.trim()) {
+            setVerificationMessage(`Enter your ${registry} ID below, then press Verify.`);
+            return;
+        }
+        try {
+            await api("/user/me/registry-id", { method: "PUT", body: JSON.stringify({ registry_id: editHprId.trim() }) });
+            await loadData();
+            await refreshUser();
+            setVerificationMessage(`Verified with ${registry}.`);
+        } catch (err: any) {
+            let detail = err.message;
+            try { detail = JSON.parse(err.message).detail || detail; } catch { /* plain text */ }
+            setVerificationMessage("Error: " + detail);
+        }
     }
 
     return (
@@ -168,7 +184,7 @@ export default function ProfilePage() {
                                 <p>
                                     {isVerifiedDoctor
                                         ? "Your medical credentials are verified. You can access patient records securely."
-                                        : "Your account is not verified with HPR."}
+                                        : `Your account is not verified with ${registry}.`}
                                 </p>
                                 {!isVerifiedDoctor && (
                                     <>
@@ -176,7 +192,7 @@ export default function ProfilePage() {
                                         <p>You must verify your identity to view medical reports.</p>
                                     </>
                                 )}
-                                <p className="font-medium">HPR ID: {user.hpr_id || "Not assigned"}</p>
+                                <p className="font-medium">{registry} ID: {user.hpr_id || "Not assigned"}</p>
                             </div>
                         </div>
                         {!isVerifiedDoctor && (
@@ -244,7 +260,7 @@ export default function ProfilePage() {
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                                             <Icons.Shield />
-                                            HPR Registration ID
+                                            {registry} Registration ID
                                         </label>
                                         <div className="flex gap-2">
                                             <Input
@@ -252,20 +268,20 @@ export default function ProfilePage() {
                                                 onChange={(e) => setEditHprId(e.target.value)}
                                                 readOnly={isVerifiedDoctor}
                                                 disabled={isVerifiedDoctor}
-                                                placeholder="HPR__________"
+                                                placeholder={registry === "HPR" ? "HPR1234567890" : "HFR1000000001"}
                                                 className={isVerifiedDoctor ? "bg-gray-50 text-gray-600 cursor-not-allowed" : ""}
                                             />
                                             <Button
                                                 type="button"
                                                 onClick={handleVerifyNow}
                                                 disabled={isVerifiedDoctor || !editHprId.trim()}
-                                                title={isVerifiedDoctor ? "HPR already verified" : "Verification under review"}
+                                                title={isVerifiedDoctor ? `${registry} already verified` : `Verify your ${registry} ID`}
                                             >
                                                 Verify
                                             </Button>
                                         </div>
                                         <p className="mt-2 text-xs text-gray-500">
-                                            {isVerifiedDoctor ? "This registration ID is locked after verification." : "Enter your HPR registration ID and submit it for review."}
+                                            {isVerifiedDoctor ? "This registration ID is locked after verification." : `Enter your ${registry} registration ID and press Verify. It's checked against the registry instantly.`}
                                         </p>
                                     </div>
                                 )}

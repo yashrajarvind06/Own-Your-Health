@@ -1,0 +1,6 @@
+{
+  "91-1234-5678-9012": {"name": "Ram Singh", "mobile": "9876500001", "gender": "M", "date_of_birth": "1958-04-12", "abha_address": "ramsingh@abdm"},
+  "91-2345-6789-0123": {"name": "Sunita Sharma", "mobile": "9876500002", "gender": "F", "date_of_birth": "1972-09-03", "abha_address": "sunita.sharma@abdm"},
+  "91-3456-7890-1234": {"name": "Rahul Singh", "mobile": "9876500003", "gender": "M", "date_of_birth": "2001-01-25", "abha_address": "rahul.singh@abdm"},
+  "91-4567-8901-2345": {"name": "Ananya Kulkarni", "mobile": "9876500004", "gender": "F", "date_of_birth": "1995-06-18", "abha_address": "ananya.k@abdm"}
+}

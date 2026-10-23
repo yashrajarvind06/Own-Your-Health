@@ -4,18 +4,14 @@ import HowItWorks from "./components/HowItWorks";
 import KeyFeatures from "./components/KeyFeatures";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import PatientDashboard from "./pages/PatientDashboard";
 import DoctorDashboard from "./pages/DoctorDashboard";
-import PatientHistory from "./pages/PatientHistory";
 import DoctorAccessHistory from "./pages/DoctorAccessHistory";
 import ProfilePage from "./pages/ProfilePage";
-import EmergencyProfile from "./pages/EmergencyProfile";
-import MyRecords from "./pages/MyRecords";
-import DoctorSearch from "./pages/DoctorSearch";
-import HealthTrends from "./pages/HealthTrends";
+import LabDashboard from "./pages/LabDashboard";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Button } from "./components/ui/Button";
 import ProtectedRoute from "./components/ProtectedRoute";
+import PatientAppMoved from "./components/PatientAppMoved";
 
 function Landing() {
   const { user, loading } = useAuth();
@@ -25,6 +21,7 @@ function Landing() {
   if (user) {
     if (user.role === "patient") return <Navigate to="/patient" />;
     if (user.role === "doctor") return <Navigate to="/doctor" />;
+    if (user.role === "lab") return <Navigate to="/lab" />;
   }
 
   return (
@@ -95,49 +92,37 @@ export default function App() {
           <Route
             path="/patient"
             element={
-              <ProtectedRoute allowedRoles={["patient"]}>
-                <PatientDashboard />
-              </ProtectedRoute>
+              <PatientAppMoved />
             }
           />
           <Route
             path="/patient/history"
             element={
-              <ProtectedRoute allowedRoles={["patient"]}>
-                <PatientHistory />
-              </ProtectedRoute>
+              <PatientAppMoved />
             }
           />
           <Route
             path="/patient/doctors"
             element={
-              <ProtectedRoute allowedRoles={["patient"]}>
-                <DoctorSearch />
-              </ProtectedRoute>
+              <PatientAppMoved />
             }
           />
           <Route
             path="/patient/emergency-profile"
             element={
-              <ProtectedRoute allowedRoles={["patient"]}>
-                <EmergencyProfile />
-              </ProtectedRoute>
+              <PatientAppMoved />
             }
           />
           <Route
             path="/patient/records"
             element={
-              <ProtectedRoute allowedRoles={["patient"]}>
-                <MyRecords />
-              </ProtectedRoute>
+              <PatientAppMoved />
             }
           />
           <Route
             path="/patient/trends"
             element={
-              <ProtectedRoute allowedRoles={["patient"]}>
-                <HealthTrends />
-              </ProtectedRoute>
+              <PatientAppMoved />
             }
           />
           <Route
@@ -151,8 +136,16 @@ export default function App() {
           <Route
             path="/doctor/logs"
             element={
-              <ProtectedRoute allowedRoles={["doctor"]}>
+              <ProtectedRoute allowedRoles={["doctor"]} requireVerified>
                 <DoctorAccessHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/lab"
+            element={
+              <ProtectedRoute allowedRoles={["lab"]}>
+                <LabDashboard />
               </ProtectedRoute>
             }
           />

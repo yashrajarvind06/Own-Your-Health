@@ -1,0 +1,198 @@
+{
+  "HPR1234567890": {
+    "name": "Dr. Ananya Rao",
+    "specialization": "Internal Medicine",
+    "hospital": "City Care Hospital",
+    "experience": 14,
+    "qualification": "MD Internal Medicine"
+  },
+  "HPR9876543210": {
+    "name": "Dr. Vikram Mehta",
+    "specialization": "Cardiology",
+    "hospital": "Sunrise Heart Institute",
+    "experience": 11,
+    "qualification": "DM Cardiology"
+  },
+  "HPR5556667778": {
+    "name": "Dr. Sneha Kulkarni",
+    "specialization": "Radiology",
+    "hospital": "Metro Imaging Centre",
+    "experience": 9,
+    "qualification": "MD Radiodiagnosis"
+  },
+  "HPR1112223334": {
+    "name": "Dr. Arjun Patil",
+    "specialization": "General Medicine",
+    "hospital": "Community Health Clinic",
+    "experience": 5,
+    "qualification": "MBBS, DNB Family Medicine"
+  },
+  "HPR2000000001": {
+    "name": "Dr. Kavita Deshmukh",
+    "specialization": "Endocrinology",
+    "hospital": "Ruby Hall Clinic",
+    "experience": 12,
+    "qualification": "DM Endocrinology"
+  },
+  "HPR2000000002": {
+    "name": "Dr. Imran Shaikh",
+    "specialization": "Pulmonology",
+    "hospital": "Jehangir Hospital",
+    "experience": 8,
+    "qualification": "MD Pulmonary Medicine"
+  },
+  "HPR2000000003": {
+    "name": "Dr. Meera Iyer",
+    "specialization": "Pediatrics",
+    "hospital": "Sahyadri Hospital",
+    "experience": 15,
+    "qualification": "MD Pediatrics"
+  },
+  "HPR2000000004": {
+    "name": "Dr. Rohan Joshi",
+    "specialization": "Orthopedics",
+    "hospital": "Deenanath Mangeshkar Hospital",
+    "experience": 10,
+    "qualification": "MS Orthopedics"
+  },
+  "HPR9000000001": {
+    "name": "Dr. Test 1",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000002": {
+    "name": "Dr. Test 2",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000003": {
+    "name": "Dr. Test 3",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000004": {
+    "name": "Dr. Test 4",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000005": {
+    "name": "Dr. Test 5",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000006": {
+    "name": "Dr. Test 6",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000007": {
+    "name": "Dr. Test 7",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000008": {
+    "name": "Dr. Test 8",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000009": {
+    "name": "Dr. Test 9",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000010": {
+    "name": "Dr. Test 10",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000011": {
+    "name": "Dr. Test 11",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000012": {
+    "name": "Dr. Test 12",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000013": {
+    "name": "Dr. Test 13",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000014": {
+    "name": "Dr. Test 14",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000015": {
+    "name": "Dr. Test 15",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000016": {
+    "name": "Dr. Test 16",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000017": {
+    "name": "Dr. Test 17",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000018": {
+    "name": "Dr. Test 18",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000019": {
+    "name": "Dr. Test 19",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  },
+  "HPR9000000020": {
+    "name": "Dr. Test 20",
+    "specialization": "General Medicine",
+    "hospital": "Test Hospital",
+    "experience": 3,
+    "qualification": "MBBS (test fixture)"
+  }
+}

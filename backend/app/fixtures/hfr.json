@@ -1,0 +1,5 @@
+{
+  "HFR1000000001": {"name": "Pune Diagnostics Lab", "facility_type": "Diagnostic Laboratory", "city": "Pune"},
+  "HFR1000000002": {"name": "Metro Pathology Centre", "facility_type": "Diagnostic Laboratory", "city": "Mumbai"},
+  "HFR1000000003": {"name": "City Care Hospital Lab", "facility_type": "Hospital Laboratory", "city": "Pune"}
+}

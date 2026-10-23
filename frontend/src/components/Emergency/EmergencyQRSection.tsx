@@ -66,6 +66,7 @@ function FieldLabel({ children }: { children: string }) {
 export default function EmergencyQRSection() {
   const [formData, setFormData] = useState<EmergencyCardForm>(EMPTY_FORM);
   const [patientId, setPatientId] = useState<number | null>(null);
+  const [cardToken, setCardToken] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -97,6 +98,7 @@ export default function EmergencyQRSection() {
           pregnancy_status: data.pregnancy_status || "",
         });
         setPatientId(data.patient_id || null);
+        setCardToken(data.card_token || null);
         setSaved(true);
       })
       .catch(() => {
@@ -132,12 +134,12 @@ export default function EmergencyQRSection() {
   }, [formData.organ_donor_status, formData.organ_donor_details]);
 
   const ecardUrl = useMemo(
-    () => (patientId ? `${API_BASE}/api/emergency-qr/card/${patientId}` : ""),
-    [patientId]
+    () => (cardToken ? `${API_BASE}/api/emergency-qr/card/${cardToken}` : ""),
+    [cardToken]
   );
   const qrUrl = useMemo(
-    () => (patientId ? `${API_BASE}/api/emergency-qr/qr/${patientId}?v=${qrNonce}` : ""),
-    [patientId, qrNonce]
+    () => (cardToken ? `${API_BASE}/api/emergency-qr/qr/${cardToken}?v=${qrNonce}` : ""),
+    [cardToken, qrNonce]
   );
 
   const updateField = <K extends keyof EmergencyCardForm>(field: K, value: EmergencyCardForm[K]) => {
@@ -162,6 +164,7 @@ export default function EmergencyQRSection() {
       });
 
       setPatientId(result.patient_id);
+      setCardToken(result.card_token);
       setSaved(true);
       setQrNonce(Date.now());
       notifyEmergencyProfileStatusChanged();
@@ -182,8 +185,8 @@ export default function EmergencyQRSection() {
   };
 
   const handleDownloadQr = async () => {
-    if (!patientId) return;
-    const response = await fetch(`${API_BASE}/api/emergency-qr/qr/${patientId}`);
+    if (!patientId || !cardToken) return;
+    const response = await fetch(`${API_BASE}/api/emergency-qr/qr/${cardToken}`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");

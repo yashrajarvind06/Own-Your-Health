@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Shield, QrCode } from "lucide-react";
+import { PURPOSE_LABELS } from "../purposes";
 
 // --- Types ---
 interface AuditLog {
@@ -44,14 +45,7 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
     QR_VALIDATED: "QR Code Scanned"
 };
 
-const REASON_LABELS: Record<string, string> = {
-    'FOLLOW_UP': 'Follow-up consultation',
-    'DIAGNOSTIC': 'Diagnostic review',
-    'MEDICATION': 'Medication review',
-    'PROCEDURE': 'Procedure preparation',
-    'EMERGENCY_EVAL': 'Emergency evaluation',
-    'OTHER': 'Other reason'
-};
+const REASON_LABELS = PURPOSE_LABELS;
 
 export default function PatientAccessHistory() {
     const [timeline, setTimeline] = useState<TimelineGroup[]>([]);

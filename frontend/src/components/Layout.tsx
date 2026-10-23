@@ -16,6 +16,9 @@ export default function Layout({ children }: LayoutProps) {
 
     const isActive = (path: string) => location.pathname === path;
 
+    // The doctor workspace draws its own full-window shell
+    if (location.pathname === "/doctor") return <>{children}</>;
+
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
             <header className="bg-white border-b border-gray-200 sticky top-0 z-50">

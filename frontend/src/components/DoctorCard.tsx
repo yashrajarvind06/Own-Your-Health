@@ -10,6 +10,7 @@ type Doctor = {
   experience: number;
   qualification: string;
   verified: boolean;
+  trust_score?: number;
 };
 
 interface DoctorCardProps {
@@ -34,12 +35,14 @@ export default function DoctorCard({
           <h3 className="text-lg font-semibold text-gray-900">
             {doctor.name}
           </h3>
-          <div className="space-y-1 text-sm text-gray-600">
-            <p>{doctor.specialization}</p>
-            <p>{doctor.hospital}</p>
-            <p>{doctor.experience} years experience</p>
-            <p>{doctor.qualification}</p>
-          </div>
+          {doctor.verified && (
+            <div className="space-y-1 text-sm text-gray-600">
+              <p>{doctor.specialization}</p>
+              <p>{doctor.hospital}</p>
+              <p>{doctor.experience} years experience</p>
+              <p>{doctor.qualification}</p>
+            </div>
+          )}
           <div
             className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
               doctor.verified
@@ -49,6 +52,9 @@ export default function DoctorCard({
           >
             {doctor.verified ? "Verified (HPR Registered)" : "Not Verified"}
           </div>
+          {doctor.trust_score !== undefined && (
+            <div className="text-sm text-gray-700">Trust score <span className="font-semibold">{doctor.trust_score}/100</span></div>
+          )}
           {!doctor.verified && (
             <p className="text-sm text-amber-700">
               Only HPR-verified doctors can request access
