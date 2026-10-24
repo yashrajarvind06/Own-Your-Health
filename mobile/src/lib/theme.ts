@@ -9,6 +9,8 @@ export const colors = {
   danger: "#d93025",
   warn: "#8a5a00", // 5.9:1 on white (the old #b7791f was 3.6:1, below 4.5:1)
   ok: "#188038",
+  ai: "#6d28d9", // AI-written text; 7:1 on white
+  aiSoft: "#f3efff",
 };
 
 // docx trust badges; keys match trust_badge in backend/app/services/records.py

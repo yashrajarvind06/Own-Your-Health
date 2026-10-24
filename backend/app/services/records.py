@@ -71,9 +71,11 @@ def vital_flags(r: MedicalReport) -> list[str]:
 
 
 def one_line_summary(r: MedicalReport) -> str:
-    """User-entered summary wins; otherwise built from type, flagged vitals and the OCR finding."""
+    """User-entered summary wins, then Gemini's; otherwise built from type, flagged vitals and the OCR finding."""
     if r.user_summary:
         return r.user_summary
+    if r.ai_summary:
+        return r.ai_summary
     parts = vital_flags(r)
     if r.summary and r.summary not in parts:
         parts.insert(0, r.summary)
@@ -92,6 +94,9 @@ def serialize(r: MedicalReport, with_url: bool = True) -> dict:
         "summary": r.summary,
         "user_summary": r.user_summary,
         "one_line_summary": one_line_summary(r),
+        "ai_summary": r.ai_summary,
+        "ai_details": r.ai_details,
+        "ai_status": r.ai_status,
         "uploaded_by": r.uploaded_by,
         "trust_badge": trust_badge(r),
         "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else None,
@@ -253,3 +258,74 @@ def health_insights(db: Session, patient: User) -> list[str]:
     if not reports or (date.today() - _record_date(reports[-1]).date()).days > 365:
         out.append("No reports uploaded in the last 1 year")
     return out
+
+
+REPORT_SYSTEM = (
+    "You summarise ONE medical record for the patient who owns it, in plain language a non-doctor understands. "
+    "Use only what the document says; never invent values. Do not diagnose. Never tell the patient to start, stop "
+    "or change a medicine: 'discuss' items are short questions or follow-ups to raise with their doctor. "
+    "one_liner: at most 110 characters, the single most useful fact (e.g. 'HbA1c 7.8%, above target; fasting sugar 142 mg/dL'). "
+    "values: the measured results with the reference range printed on the report as target, and status "
+    "normal|high|low|abnormal. If the document is unreadable or not medical, say so in one_liner and leave lists empty."
+)
+REPORT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "one_liner": {"type": "STRING"},
+        "summary": {"type": "STRING"},
+        "values": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+            "name": {"type": "STRING"}, "value": {"type": "STRING"}, "unit": {"type": "STRING"},
+            "target": {"type": "STRING"}, "status": {"type": "STRING", "enum": ["normal", "high", "low", "abnormal"]},
+        }, "required": ["name", "value", "status"]}},
+        "takeaways": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "discuss": {"type": "ARRAY", "items": {"type": "STRING"}},
+    },
+    "required": ["one_liner", "summary", "values", "takeaways", "discuss"],
+}
+
+
+def summarize_report(db: Session, r: MedicalReport) -> MedicalReport:
+    """Gemini one-liner + details for one record. Leaves the rule-based summary in place if Gemini is off or fails."""
+    from app.services import ai
+    if not ai.enabled():
+        return r
+    context = f"Record type: {r.record_type or 'unknown'}. Date: {_record_date(r).date().isoformat()}. Uploaded by: {r.uploaded_by}."
+    ocr = (r.extracted_text or "")[:6000]
+    out = ai.generate_json(REPORT_SYSTEM, [
+        {"text": context + (f" OCR text (may be noisy): {ocr}" if ocr else "")},
+        ai.file_part(str(Path("storage") / r.file_key), r.mime_type),
+    ], REPORT_SCHEMA)
+    if out and out.get("one_liner"):
+        r.ai_summary = out["one_liner"][:300]
+        r.ai_details = {k: out.get(k) for k in ("summary", "values", "takeaways", "discuss")}
+        r.ai_status = "DONE"
+    else:
+        r.ai_status = "FAILED"
+    db.commit()
+    return r
+
+
+def summarize_reports_bg(report_ids: list[int]) -> None:
+    """Background task, one record at a time (parallel calls hit Gemini's rate limit). Own DB session."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        for report_id in report_ids:
+            r = db.get(MedicalReport, report_id)
+            if r and r.ai_status == "PENDING":
+                summarize_report(db, r)
+    finally:
+        db.close()
+
+
+def queue_summaries(db: Session, background, reports: list[MedicalReport], limit: int = 5) -> None:
+    """Mark records without an AI summary as PENDING and summarise them after the response (a few per request)."""
+    from app.services import ai
+    if not ai.enabled():
+        return
+    todo = [r for r in reports if r.ai_status is None and not r.deleted_at][:limit]
+    for r in todo:
+        r.ai_status = "PENDING"
+    db.commit()
+    if todo:
+        background.add_task(summarize_reports_bg, [r.id for r in todo])

@@ -130,6 +130,9 @@ class MedicalReport(Base):
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)  # soft delete: restorable backup
+    ai_summary = Column(String(300), nullable=True)  # Gemini one-liner
+    ai_details = Column(JSON, nullable=True)  # Gemini summary, values, takeaways, discuss
+    ai_status = Column(String(12), nullable=True)  # PENDING | DONE | FAILED; NULL = not generated
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class AuditLog(Base):
@@ -329,3 +332,24 @@ class DoctorEndorsement(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("doctor_id", "endorsed_by", name="uq_endorsement_pair"),)
+
+
+class HealthHistory(Base):
+    """The patient's saved AI (or rule-based) health history, built from all their records."""
+    __tablename__ = "health_histories"
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+    content = Column(JSON, nullable=False)
+    source = Column(String(10), nullable=False)  # AI | RULES
+    report_count = Column(Integer, nullable=False)
+    generated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class HealthHistoryShare(Base):
+    """A patient sharing their health history with one doctor, until revoked."""
+    __tablename__ = "health_history_shares"
+    id = Column(Integer, primary_key=True, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    doctor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    revoked_at = Column(DateTime, nullable=True)

@@ -104,6 +104,10 @@ export default function ProfileScreen() {
             )}
           </Group>
 
+          <Group label="Health" footer="A short history from your reports that you can share with a doctor.">
+            <Row title="Health history" subtitle="AI summary of your records" left={<Icon name="sparkles" bg={colors.ai} />} onPress={() => router.push("/health-history")} last />
+          </Group>
+
           <Group label="Family">
             <Row title="Family & caregivers" subtitle={familySub} left={<Icon name="people" bg="#ad1457" />} onPress={() => router.push("/family")} last />
           </Group>

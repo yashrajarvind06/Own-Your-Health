@@ -1,0 +1,15 @@
+**/node_modules
+**/__pycache__
+**/.expo
+mobile/dist
+backend/venv
+backend/.venv
+backend/storage
+backend/.env
+backend/.secret_key
+frontend
+graphify-out
+.git
+.claude
+.agents
+~

@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,7 @@ from app.services.file_urls import file_url
 from app.services.log_service import LogService
 from app.services.registry import normalize_abha
 from app.services.assistant import answer as assistant_answer
-from app.services.records import RECORD_TYPES, health_insights, patient_summary, serialize, store_report
+from app.services.records import RECORD_TYPES, health_insights, patient_summary, queue_summaries, serialize, store_report, summarize_report
 from app.services.report_access_service import ReportAccessService
 from app.services.misuse import record_denied_doctor_access, record_doctor_access
 
@@ -44,6 +44,7 @@ def record_types():
 
 @router.post("/upload")
 def upload_report(
+    background: BackgroundTasks,
     file: UploadFile = File(...),
     record_type: Optional[str] = Form(None),
     record_date: Optional[date] = Form(None),
@@ -57,12 +58,14 @@ def upload_report(
     note = log_on_behalf(db, user, link, "upload_report")
     rec = store_report(db, patient_id=target, uploader=user, uploaded_by="PATIENT", file=file, record_type=record_type,
                        record_date=record_date, summary=summary, report_id=report_id, on_behalf_note=note)
+    queue_summaries(db, background, [rec])
     return serialize(rec)
 
 
 @router.post("/upload-by-doctor")
 @router.post("/upload-by-lab")
 def upload_report_by_provider(
+    background: BackgroundTasks,
     patient_id: Optional[int] = Form(None),
     abha_number: Optional[str] = Form(None),  # labs usually know the patient by ABHA
     file: UploadFile = File(...),
@@ -90,18 +93,36 @@ def upload_report_by_provider(
     rec = store_report(db, patient_id=patient_id, uploader=user, uploaded_by=user.role.upper(), file=file,
                        record_type=record_type or ("Lab Report" if user.role == "lab" else None),
                        record_date=record_date, summary=summary, report_id=report_id)
+    queue_summaries(db, background, [rec])
     return serialize(rec, with_url=False)
 
 
 @router.get("/my")
-def my_reports(patient_id: Optional[int] = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def my_reports(background: BackgroundTasks, patient_id: Optional[int] = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Timeline for the patient (or a family member they are a VIEW_RECORDS delegate of), newest first."""
     target, link = acting_patient(db, user, patient_id, "VIEW_RECORDS")
     log_on_behalf(db, user, link, "view_records")
     items = db.query(MedicalReport).filter(MedicalReport.patient_id == target, MedicalReport.deleted_at.is_(None)).all()
+    queue_summaries(db, background, sorted(items, key=lambda r: r.id, reverse=True))  # older records get AI one-liners too
     out = [serialize(r) for r in items]
     out.sort(key=lambda r: r["record_date"], reverse=True)
     return out
+
+
+@router.post("/{report_id}/summarize")
+def resummarize(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """'Rewrite summary': regenerate the AI one-liner and details now (owner or VIEW_RECORDS delegate)."""
+    r = db.get(MedicalReport, report_id)
+    if not r or r.deleted_at:
+        raise HTTPException(status_code=404, detail="Report not found")
+    acting_patient(db, user, r.patient_id if r.patient_id != user.id else None, "VIEW_RECORDS")
+    from app.services import ai
+    if not ai.enabled():
+        raise HTTPException(status_code=503, detail="AI summaries are off: add GEMINI_API_KEY to backend/.env")
+    summarize_report(db, r)
+    if r.ai_status != "DONE":
+        raise HTTPException(status_code=502, detail="Couldn't summarise this record right now. Try again in a minute.")
+    return serialize(r)
 
 
 @router.get("/summary")
@@ -195,7 +216,7 @@ def list_reports(patient_id: int, doctor: User = Depends(require_role("doctor"))
     for r in items:
         row = serialize(r, with_url=False)
         if not has_access:
-            for k in ("summary", "user_summary", "one_line_summary", "vitals"):
+            for k in ("summary", "user_summary", "one_line_summary", "vitals", "ai_summary", "ai_details"):
                 row[k] = None
         out.append(row)
     out.sort(key=lambda r: r["record_date"], reverse=True)

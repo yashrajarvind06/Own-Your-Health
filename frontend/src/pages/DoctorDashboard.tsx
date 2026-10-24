@@ -8,9 +8,10 @@ import DoctorNotifications from "../components/DoctorNotifications";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import DoctorReportList from "../components/DoctorReportList";
-import { PatientSummaryPanel } from "../components/DoctorRecordTools";
+import { SharedHistoryPanel } from "../components/DoctorRecordTools";
 import { ACCESS_PURPOSES } from "../purposes";
 import TrustPanel from "../components/TrustPanel";
+import { LogoMark, Wordmark } from "../components/OwnYourHealthLogo";
 
 type ActiveSession = {
   patient_id: number;
@@ -77,7 +78,7 @@ export default function DoctorDashboard() {
   const [doctorReportFile, setDoctorReportFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [view, setView] = useState<View>("patients");
-  const [detailTab, setDetailTab] = useState<"timeline" | "snapshot">("timeline");
+  const [detailTab, setDetailTab] = useState<"timeline" | "history">("timeline");
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const [scanOpen, setScanOpen] = useState(false);
@@ -339,7 +340,7 @@ export default function DoctorDashboard() {
       {/* Sidebar: the glass navigation layer */}
       <aside className="glass flex flex-col gap-1 border-b border-white/60 p-3 lg:m-3 lg:mr-0 lg:rounded-3xl lg:border">
         <Link to="/" className="mb-2 flex items-center gap-2 px-3 py-2 text-lg font-extrabold tracking-tight">
-          <span style={{ color: "#1d3a8a" }}>Own</span><span className="-ml-2" style={{ color: "#00b890" }}>Your</span><span className="-ml-2" style={{ color: "#1d3a8a" }}>Health</span>
+          <LogoMark size={30} /><Wordmark />
         </Link>
         <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Workspace">
           {navItem("patients", "Patients", <Users className="h-5 w-5" />)}
@@ -490,7 +491,7 @@ export default function DoctorDashboard() {
                 )}
 
                 <div className="inline-flex rounded-xl bg-slate-200/70 p-1" role="tablist" aria-label="Patient view">
-                  {(["timeline", "snapshot"] as const).map((t) => (
+                  {(["timeline", "history"] as const).map((t) => (
                     <button key={t} type="button" role="tab" aria-selected={detailTab === t} onClick={() => setDetailTab(t)}
                       className={`rounded-lg px-4 py-1.5 text-sm font-semibold capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 ${detailTab === t ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}>
                       {t}
@@ -500,7 +501,7 @@ export default function DoctorDashboard() {
 
                 {detailTab === "timeline"
                   ? <DoctorReportList key={`${selectedSessionId}-${reportsVersion}`} patientId={selectedSession.patient_id} sessionId={selectedSessionId} showSummary={false} />
-                  : <PatientSummaryPanel patientId={selectedSession.patient_id} />}
+                  : <SharedHistoryPanel patientId={selectedSession.patient_id} />}
               </div>
             )}
           </main>

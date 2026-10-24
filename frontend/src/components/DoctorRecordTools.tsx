@@ -47,6 +47,74 @@ export function PatientSummaryPanel({ patientId }: { patientId: number }) {
     );
 }
 
+export type AiValue = { name: string; value: string; unit?: string | null; target?: string | null; status: "normal" | "high" | "low" | "abnormal" };
+export type AiDetails = { summary: string; values: AiValue[]; takeaways: string[]; discuss: string[] };
+
+/** Marks AI-written text so it is never mistaken for the document itself. */
+export function AiChip({ label = "AI summary" }: { label?: string }) {
+    return <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-800">✦ {label}</span>;
+}
+
+const VALUE_STATUS: Record<AiValue["status"], string> = {
+    normal: "bg-emerald-50 text-emerald-700", high: "bg-red-50 text-red-700", low: "bg-amber-50 text-amber-800", abnormal: "bg-red-50 text-red-700",
+};
+
+export function AiValues({ values }: { values: AiValue[] }) {
+    if (!values?.length) return null;
+    return (
+        <div className="grid grid-cols-2 gap-2">
+            {values.map((v, i) => (
+                <div key={i} className="rounded-lg bg-white p-2 ring-1 ring-slate-200/70">
+                    <div className="text-xs text-slate-500">{v.name}</div>
+                    <div className="font-bold text-slate-900">{v.value} <span className="text-xs font-medium text-slate-500">{v.unit}</span></div>
+                    {v.target && <div className="text-xs text-slate-500">Target {v.target}</div>}
+                    <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${VALUE_STATUS[v.status] ?? VALUE_STATUS.abnormal}`}>{v.status}</span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+type Cited = { name: string; detail: string; report_ids: number[] };
+type SharedHistory = {
+    overview: string; conditions: Cited[]; medications: Cited[]; allergies: string[];
+    trends: { name: string; change: string; direction: string }[]; events: { date: string; title: string; detail?: string }[];
+    source: "AI" | "RULES"; report_count: number; generated_at: string; shared_at: string;
+};
+
+/** The health history a patient chose to share; falls back to the live snapshot when nothing is shared. */
+export function SharedHistoryPanel({ patientId }: { patientId: number }) {
+    const [h, setH] = useState<SharedHistory | null | undefined>(undefined);
+    useEffect(() => { api(`/health-summary/shared/${patientId}`).then(setH).catch(() => setH(null)); }, [patientId]);
+    if (h === undefined) return <div className="p-4 text-sm text-slate-500">Loading…</div>;
+    if (h === null) return (
+        <div className="space-y-3">
+            <div className="rounded-xl bg-slate-100 p-3 text-sm text-slate-600">The patient hasn't shared an AI health history with you. Showing the live snapshot from their records.</div>
+            <PatientSummaryPanel patientId={patientId} />
+        </div>
+    );
+    const list = (label: string, items: Cited[]) => items.length > 0 && (
+        <><dt className="text-slate-500">{label}</dt><dd>{items.map(i => i.detail ? `${i.name} (${i.detail})` : i.name).join("; ")}</dd></>
+    );
+    return (
+        <div className="space-y-4 rounded-2xl bg-white p-5 text-sm shadow-sm ring-1 ring-slate-200/70">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <AiChip label={h.source === "AI" ? "AI summary · shared by patient" : "Summary · shared by patient"} />
+                <span className="text-xs text-slate-500">From {h.report_count} reports · {new Date(h.generated_at).toLocaleDateString()}</span>
+            </div>
+            <p className="rounded-lg border-l-4 border-violet-500 bg-violet-50 p-3 text-[15px] text-slate-800">{h.overview}</p>
+            <dl className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2">
+                {list("Conditions", h.conditions)}
+                {list("Medicines", h.medications)}
+                {h.allergies.length > 0 && <><dt className="text-slate-500">Allergies</dt><dd className="font-semibold text-red-700">{h.allergies.join(", ")}</dd></>}
+                {h.trends.length > 0 && <><dt className="text-slate-500">Trends</dt><dd>{h.trends.map(t => `${t.name}: ${t.change || t.direction}`).join("; ")}</dd></>}
+                {h.events.length > 0 && <><dt className="text-slate-500">Key events</dt><dd>{h.events.map(e => `${e.title} (${e.date})`).join("; ")}</dd></>}
+            </dl>
+            <p className="text-xs text-slate-500">Generated from the patient's records. Check against the source reports before clinical decisions.</p>
+        </div>
+    );
+}
+
 type Comment = { id: number; body: string; doctor_name: string | null; created_at: string };
 
 /** Doctor-only notes on a report plus "mark as reviewed" (docx: comment section / mark as reviewed). */

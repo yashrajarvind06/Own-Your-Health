@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, Image, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import type { BottomTabBarProps } from "expo-router/tabs";
@@ -85,7 +85,10 @@ export default function GlassTabBar({ state, descriptors, navigateToTab, insets 
   if (wide) {
     return surface(
       <>
-        <Text style={styles.brand}>OwnYourHealth</Text>
+        <View style={styles.brandRow}>
+          <Image source={require("../../assets/logo-mark.png")} style={{ width: 30, height: 30 }} accessibilityLabel="OwnYourHealth logo" />
+          <Text style={styles.brand}>Own<Text style={{ color: colors.primary }}>Your</Text>Health</Text>
+        </View>
         {items}
       </>,
       [styles.sidebar, { marginTop: insets.top + 12 }],
@@ -121,7 +124,8 @@ const styles = StyleSheet.create({
   badgeSide: { position: "relative", top: 0, right: 0, marginLeft: "auto" },
   badgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   sidebar: { width: 232, marginLeft: 12, marginBottom: 12, borderRadius: 24, overflow: "hidden", paddingVertical: 18, paddingHorizontal: 10, gap: 4 },
-  brand: { fontSize: 17, fontWeight: "800", color: colors.primary, paddingHorizontal: 12, paddingBottom: 14 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingBottom: 14 },
+  brand: { fontSize: 17, fontWeight: "800", color: colors.text },
   sideItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, minHeight: 44, borderRadius: 12 },
   sideLabel: { fontSize: 15, fontWeight: "600", color: "#2b3447" },
 });

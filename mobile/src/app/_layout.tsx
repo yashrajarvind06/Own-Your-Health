@@ -36,6 +36,7 @@ function RootNavigator() {
         <Stack.Screen name="share" options={{ title: "Share records" }} />
         <Stack.Screen name="assistant" options={{ title: "Ask about my records" }} />
         <Stack.Screen name="doctors" options={{ title: "Find doctors" }} />
+        <Stack.Screen name="health-history" options={{ title: "Health history" }} />
       </Stack.Protected>
       <Stack.Protected guard={!token}>
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />

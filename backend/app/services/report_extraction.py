@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -5,10 +6,12 @@ from pathlib import Path
 import pytesseract
 from PIL import Image
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# Local Windows installs; on Linux (Docker) tesseract and poppler are on PATH
+if os.name == "nt":
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+POPPLER_PATH = r"C:\poppler\Library\bin" if os.name == "nt" else None
 
 TESSERACT_CONFIG = "--oem 3 --psm 6"
-poppler_path=r"C:\Users\yashr\Downloads\Release-25.12.0\poppler-25.12.0\Library\bin"
 
 
 def extract_text_from_image(file_path: str) -> str:
@@ -37,7 +40,7 @@ def extract_text_from_pdf(file_path: str) -> str:
         try:
             images = convert_from_path(
                 file_path,
-                poppler_path=r"C:\poppler\Library\bin",
+                poppler_path=POPPLER_PATH,
             )
 
             for img in images:

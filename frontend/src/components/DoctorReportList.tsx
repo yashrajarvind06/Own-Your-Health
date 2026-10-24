@@ -3,7 +3,7 @@ import { api } from "../api";
 import { Button } from "./ui/Button";
 import { Lock, FileText, XCircle, Clock, Timer, Ban } from "lucide-react";
 import { ACCESS_PURPOSES } from "../purposes";
-import { CompareModal, PatientSummaryPanel, ReportNotes, TrustBadge, type CompareItem } from "./DoctorRecordTools";
+import { AiChip, AiValues, CompareModal, PatientSummaryPanel, ReportNotes, TrustBadge, type AiDetails, type CompareItem } from "./DoctorRecordTools";
 
 type ReportStatus = "LOCKED" | "UNLOCKED" | "PENDING" | "DENIED" | "REVOKED" | "EXPIRED";
 
@@ -19,6 +19,8 @@ type ReportItem = CompareItem & {
     trust_badge?: string;
     reviewed_at?: string | null;
     relevant?: boolean;
+    ai_summary?: string | null;
+    ai_details?: AiDetails | null;
 };
 
 export default function DoctorReportList({ patientId, sessionId, showSummary = true }: DoctorReportListProps) {
@@ -216,6 +218,7 @@ export default function DoctorReportList({ patientId, sessionId, showSummary = t
                             {temp ? <Timer size={12} /> : pill.icon}{temp ? `Temporary · ${getTimeRemaining(accessInfo?.expires_at || "")}` : pill.label}
                         </span>
                         <TrustBadge badge={r.trust_badge} />
+                        {r.ai_summary && <AiChip />}
                     </div>
                 </div>
                 {status === "LOCKED" && !compareMode && (
@@ -265,7 +268,14 @@ export default function DoctorReportList({ patientId, sessionId, showSummary = t
                             </div>
                             <TrustBadge badge={selected.trust_badge} />
                             {selected.one_line_summary && <p className="text-slate-700">{selected.one_line_summary}</p>}
-                            {vitals.length > 0 && (
+                            {selected.ai_details && (
+                                <div className="space-y-3 rounded-xl bg-violet-50/60 p-3">
+                                    <AiChip />
+                                    <p className="text-slate-800">{selected.ai_details.summary}</p>
+                                    <AiValues values={selected.ai_details.values} />
+                                </div>
+                            )}
+                            {!selected.ai_details && vitals.length > 0 && (
                                 <dl className="divide-y divide-slate-100 rounded-xl bg-slate-50">
                                     {vitals.map(([k, v]) => (
                                         <div key={k} className="flex justify-between gap-3 px-3 py-2"><dt className="capitalize text-slate-500">{k.replace(/_/g, " ")}</dt><dd className="font-semibold text-slate-900">{v}</dd></div>

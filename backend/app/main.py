@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from fastapi import Depends
 from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, doctors
-from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, emergency_qr, family, fhir, alerts, share
+from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, emergency_qr, family, fhir, alerts, share, health_summary
 
 
 def create_app() -> FastAPI:
@@ -57,6 +57,11 @@ def create_app() -> FastAPI:
                 conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS heart_rate INTEGER"))
                 conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS glucose INTEGER"))
                 conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS report_date TIMESTAMP"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS ai_summary VARCHAR(300)"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS ai_details JSON"))
+                conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS ai_status VARCHAR(12)"))
+                # a restart drops queued summaries, and FAILED means Gemini was down: queue both again
+                conn.execute(text("UPDATE medical_reports SET ai_status = NULL WHERE ai_status IN ('PENDING', 'FAILED')"))
                 conn.execute(text("ALTER TABLE medical_reports ADD COLUMN IF NOT EXISTS uploaded_by VARCHAR(20) DEFAULT 'PATIENT' NOT NULL"))
                 conn.execute(text("UPDATE medical_reports SET uploaded_by = 'PATIENT' WHERE uploaded_by IS NULL"))
                 
@@ -131,6 +136,7 @@ def create_app() -> FastAPI:
     app.include_router(alerts.router, prefix="/alerts", tags=["alerts"])
     # not "/share": that path is the PWA's share screen, and API routes win over page loads
     app.include_router(share.router, prefix="/share-links", tags=["share"])
+    app.include_router(health_summary.router, prefix="/health-summary", tags=["health-summary"])
     # app.include_router(access_profile.router, prefix="/patient", tags=["patient_access_profile"]) # Not found in fs
     app.include_router(patient_history.router, prefix="/patient/access", tags=["patient_history"])
     app.include_router(patient_report_log.router, prefix="/patient/reports", tags=["patient_report_log"])

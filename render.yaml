@@ -1,0 +1,28 @@
+# Render blueprint: free web service running the Dockerfile (backend + patient PWA on one URL).
+# Database and file storage live in Supabase (free); fill the sync:false values in the Render dashboard.
+services:
+  - type: web
+    name: ownyourhealth
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /reports/types
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL # Supabase > Connect > Session pooler URI, with ?sslmode=require
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: S3_ENDPOINT_URL # https://<project-ref>.supabase.co/storage/v1/s3
+        sync: false
+      - key: AWS_REGION # your Supabase project region, e.g. ap-south-1
+        sync: false
+      - key: AWS_ACCESS_KEY_ID # Supabase > Storage > S3 access keys
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET # a private bucket, e.g. reports
+        value: reports
+      - key: OTP_DEV_ECHO # demo: show OTPs on screen instead of SMS
+        value: "1"

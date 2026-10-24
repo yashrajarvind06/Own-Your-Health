@@ -26,8 +26,11 @@ def get_s3():
     if not key or not secret or not bucket:
         return None, None
     import boto3
-    return boto3.client("s3", aws_access_key_id=key, aws_secret_access_key=secret,
-                        region_name=os.getenv("AWS_REGION", "us-east-1")), bucket
+    from botocore.config import Config
+    endpoint = os.getenv("S3_ENDPOINT_URL")  # set for S3-compatible stores (Supabase Storage, Cloudflare R2)
+    return boto3.client("s3", aws_access_key_id=key, aws_secret_access_key=secret, endpoint_url=endpoint,
+                        region_name=os.getenv("AWS_REGION", "us-east-1"),
+                        config=Config(s3={"addressing_style": "path"}) if endpoint else None), bucket
 
 
 def file_url(key: str) -> str | None:

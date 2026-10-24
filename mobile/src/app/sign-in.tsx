@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Link } from "expo-router";
 import { useSession } from "@/lib/session";
@@ -59,7 +59,8 @@ export default function SignIn() {
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
-          <Text style={styles.brand}>OwnYourHealth</Text>
+          <Image source={require("../../assets/logo-mark.png")} style={styles.logo} accessibilityLabel="OwnYourHealth logo" />
+          <Text style={styles.brand}>Own<Text style={{ color: colors.primary }}>Your</Text>Health</Text>
           <Text style={styles.tagline}>Your health records, your control</Text>
 
           <Segmented options={MODES} value={mode} onChange={switchMode} />
@@ -109,7 +110,8 @@ export default function SignIn() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   form: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 24, gap: 12 },
-  brand: { fontSize: 34, fontWeight: "800", color: colors.primary, textAlign: "center", letterSpacing: -0.4 },
+  logo: { width: 84, height: 84, alignSelf: "center", marginBottom: 4 },
+  brand: { fontSize: 34, fontWeight: "800", color: colors.text, textAlign: "center", letterSpacing: -0.4 },
   tagline: { fontSize: 15, color: colors.muted, textAlign: "center", marginBottom: 16 },
   tabs: { flexDirection: "row", backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 4 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 9, alignItems: "center" },
