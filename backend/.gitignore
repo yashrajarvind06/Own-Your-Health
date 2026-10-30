@@ -9,3 +9,4 @@ dist/
 build/
 .secret_key
 storage/
+.env.deploy
