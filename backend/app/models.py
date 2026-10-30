@@ -254,8 +254,8 @@ class ReportComment(Base):
 class OtpCode(Base):
     __tablename__ = "otp_codes"
     id = Column(Integer, primary_key=True, index=True)
-    phone = Column(String(20), nullable=False, index=True)
-    purpose = Column(String(30), nullable=False)  # LOGIN | FAMILY_LINK
+    phone = Column(String(255), nullable=False, index=True)  # the phone or email the code is for
+    purpose = Column(String(30), nullable=False)  # LOGIN | FAMILY_LINK | ABHA_LINK | SIGNUP | RESET
     code_hash = Column(String(255), nullable=False)
     attempts = Column(Integer, nullable=False, default=0)
     expires_at = Column(DateTime, nullable=False)

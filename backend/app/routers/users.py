@@ -9,7 +9,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.services.otp import check_otp, normalize_phone, send_otp
+from app.services.otp import DEV_ECHO, check_otp, normalize_phone, real_email, send_otp
 from app.services.registry import REGISTRY_BY_ROLE, abha_lookup, lookup, normalize_abha, verify_user
 
 router = APIRouter()
@@ -55,14 +55,16 @@ def link_abha(body: AbhaLinkRequest, current_user: User = Depends(get_current_us
         raise HTTPException(status_code=404, detail="ABHA number not found")
     phone = normalize_phone(abha["mobile"])
     if not body.code:
-        return send_otp(db, phone, "ABHA_LINK")
+        # shortcut: mock ABHA registry with no SMS, so the code goes to the signed-in user's email and doesn't prove
+        # they hold the ABHA's mobile; send it to that mobile once a real ABHA/SMS gateway is connected.
+        return send_otp(db, phone, "ABHA_LINK", email=real_email(current_user))
     check_otp(db, phone, "ABHA_LINK", body.code)
     number = normalize_abha(body.abha_number)
     if db.query(User).filter(User.abha_number == number, User.id != current_user.id).first():
         raise HTTPException(status_code=409, detail="This ABHA is already linked to another account")
     current_user.abha_number, current_user.abha_address, current_user.abha_verified_at = number, abha["abha_address"], datetime.utcnow()
     if not current_user.phone and not db.query(User).filter(User.phone == phone).first():
-        current_user.phone, current_user.phone_verified_at = phone, datetime.utcnow()
+        current_user.phone, current_user.phone_verified_at = phone, datetime.utcnow() if DEV_ECHO else None
     db.commit()
     return {"abha_number": number, "abha_address": abha["abha_address"], "abha_verified": True}
 

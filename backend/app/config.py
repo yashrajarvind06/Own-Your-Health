@@ -3,6 +3,10 @@ import os
 import secrets
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
 
 def _secret_key() -> str:
     """SECRET_KEY env var, else a random key generated once and kept in backend/.secret_key (gitignored).

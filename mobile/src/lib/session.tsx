@@ -24,6 +24,11 @@ type Session = {
   signIn: (email: string, password: string) => Promise<void>;
   /** ABHA or mobile login. Without `code` it sends the OTP and returns { sent_to, dev_otp? }. */
   otpSignIn: (who: { abha_number?: string; phone?: string }, code?: string) => Promise<{ sent_to: string; dev_otp?: string } | void>;
+  /** New patient. Without `code` it emails a code and returns { sent_to, dev_otp? }; with it the account is created. */
+  signUp: (details: object, code?: string) => Promise<{ sent_to: string; dev_otp?: string } | void>;
+  /** True right after sign-up, so the app can offer the profile step once. */
+  newUser: boolean;
+  clearNewUser: () => void;
   signOut: () => void;
   /** Authenticated API call; signs out on 401. */
   request: <T = any>(path: string, init?: RequestInit) => Promise<T>;
@@ -40,6 +45,8 @@ export function useSession() {
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
+  const [newUser, setNewUser] = useState(false);
+  const clearNewUser = useCallback(() => setNewUser(false), []);
 
   useEffect(() => {
     store.get().then(setToken).finally(() => setLoading(false));
@@ -67,6 +74,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setToken(res.access_token);
   }, []);
 
+  const signUp = useCallback(async (details: object, code?: string) => {
+    if (!code) return api<{ sent_to: string; dev_otp?: string }>("/auth/signup", null, { method: "POST", body: JSON.stringify(details) });
+    const res = await api<{ access_token: string }>("/auth/signup", null, { method: "POST", body: JSON.stringify({ ...details, code }) });
+    await store.set(res.access_token);
+    setNewUser(true);
+    setToken(res.access_token);
+  }, []);
+
   const request = useCallback(
     async <T,>(path: string, init?: RequestInit) => {
       try {
@@ -80,7 +95,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <SessionContext.Provider value={{ token, isLoading, signIn, otpSignIn, signOut, request }}>
+    <SessionContext.Provider value={{ token, isLoading, signIn, otpSignIn, signUp, newUser, clearNewUser, signOut, request }}>
       {children}
     </SessionContext.Provider>
   );

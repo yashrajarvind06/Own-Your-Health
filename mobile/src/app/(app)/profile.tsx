@@ -105,6 +105,7 @@ export default function ProfileScreen() {
           </Group>
 
           <Group label="Health" footer="A short history from your reports that you can share with a doctor.">
+            <Row title="Health profile" subtitle="Blood group, allergies, conditions, medicines" left={<Icon name="heart" bg={colors.danger} />} onPress={() => router.push("/complete-profile")} />
             <Row title="Health history" subtitle="AI summary of your records" left={<Icon name="sparkles" bg={colors.ai} />} onPress={() => router.push("/health-history")} last />
           </Group>
 

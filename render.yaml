@@ -24,5 +24,11 @@ services:
         sync: false
       - key: S3_BUCKET # a private bucket, e.g. reports
         value: reports
-      - key: OTP_DEV_ECHO # demo: show OTPs on screen instead of SMS
-        value: "1"
+      - key: OTP_DEV_ECHO # must stay 0 here: 1 returns login codes in API responses
+        value: "0"
+      - key: BREVO_API_KEY # Brevo > SMTP & API > API keys; emails the sign-in codes
+        sync: false
+      - key: EMAIL_FROM # the sender address you verified in Brevo
+        sync: false
+      - key: PUBLIC_BASE_URL # this service's URL, used in emergency card QR codes
+        sync: false

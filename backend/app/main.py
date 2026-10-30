@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
         # --- AUTO MIGRATION START ---
         try:
             with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE otp_codes ALTER COLUMN phone TYPE VARCHAR(255)"))
                 conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)"))
                 conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS registry_id VARCHAR(50)"))
                 conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP"))

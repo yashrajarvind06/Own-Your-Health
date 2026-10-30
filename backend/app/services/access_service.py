@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 
-from app.models import AccessRequest, ActiveAccessSession, QRToken, AuditLog, User, DoctorInteraction, DoctorPatientAccess
+from app.models import AccessRequest, ActiveAccessSession, QRToken, AuditLog, User, DoctorInteraction, DoctorPatientAccess, ReportAccess, MedicalReport
 from app.enums import normalize_purpose, AccessDenyReason, DecisionActor
 
 class AccessService:
@@ -609,13 +609,21 @@ class AccessService:
             remaining = int((session.expires_at - now).total_seconds())
             d_name = doctor.display_name if doctor else f"Doctor {session.doctor_id}"
 
+            # Records this doctor can open right now (shown live on the patient's home screen)
+            granted = self.db.query(MedicalReport).join(ReportAccess, ReportAccess.report_id == MedicalReport.id).filter(
+                ReportAccess.session_id == session.id, ReportAccess.revoked_at.is_(None), ReportAccess.expires_at > now,
+                MedicalReport.deleted_at.is_(None),
+            ).all()
             output.append({
                 "doctor_id": session.doctor_id,
                 "doctor_name": d_name,
                 "access_mode": "NORMAL",
                 "expires_at": session.expires_at,
                 "remaining_seconds": remaining,
-                "revocable": True
+                "revocable": True,
+                "session_id": session.id,
+                "records": [{"id": r.id, "record_type": r.record_type or "Other",
+                             "record_date": (r.report_date or r.created_at).date().isoformat()} for r in granted],
             })
 
         return output

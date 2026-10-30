@@ -67,10 +67,15 @@ function RecordSheet({ record, own, onClose, onDelete, onUpdated }: {
   const [tab, setTab] = useState<Tab>("ai");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setTab("ai"); setError(null); }, [record?.id]);
+  const [freshUrl, setFreshUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setTab("ai"); setError(null); setFreshUrl(null);
+    // list links expire after 5 minutes, so ask for a new one each time the sheet opens
+    if (record) request<{ url: string }>(`/reports/${record.id}/file`).then((r) => setFreshUrl(absoluteUrl(r.url))).catch(() => {});
+  }, [record?.id, request]);
   if (!record) return null;
   const vitals = Object.entries(record.vitals ?? {}).filter(([, v]) => v !== null && v !== undefined);
-  const fileUrl = record.presigned_url ? absoluteUrl(record.presigned_url) : null;
+  const fileUrl = freshUrl ?? (record.presigned_url ? absoluteUrl(record.presigned_url) : null);
 
   const rewrite = async () => {
     setBusy(true);

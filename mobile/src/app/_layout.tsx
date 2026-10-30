@@ -37,9 +37,12 @@ function RootNavigator() {
         <Stack.Screen name="assistant" options={{ title: "Ask about my records" }} />
         <Stack.Screen name="doctors" options={{ title: "Find doctors" }} />
         <Stack.Screen name="health-history" options={{ title: "Health history" }} />
+        <Stack.Screen name="complete-profile" options={{ title: "Complete your profile" }} />
       </Stack.Protected>
       <Stack.Protected guard={!token}>
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+        <Stack.Screen name="sign-up" options={{ headerShown: false }} />
+        <Stack.Screen name="forgot-password" options={{ title: "Reset password" }} />
       </Stack.Protected>
       {/* Listed last so it's never the fallback route when the user signs out */}
       <Stack.Screen name="emergency" options={{ title: "Emergency card" }} />

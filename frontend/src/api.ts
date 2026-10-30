@@ -1,5 +1,8 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
+/** File links come back relative to the backend ("/api/files/..."); S3 links are already absolute. */
+export const fileUrl = (url: string) => (url.startsWith("http") ? url : `${API_BASE}${url}`);
+
 export async function api(path: string, init?: RequestInit) {
   const token = localStorage.getItem("token");
   console.log("DEBUG API: Token for", path, "is", token ? "Present" : "MISSING");

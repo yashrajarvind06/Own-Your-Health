@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import { useSession } from "@/lib/session";
 import { colors } from "@/lib/theme";
 import { Segmented } from "@/components/ui";
@@ -9,7 +9,7 @@ import { Segmented } from "@/components/ui";
 type Mode = "abha" | "phone" | "email";
 const MODES: { key: Mode; label: string }[] = [
   { key: "abha", label: "ABHA" },
-  { key: "phone", label: "Mobile OTP" },
+  { key: "phone", label: "Mobile" },
   { key: "email", label: "Email" },
 ];
 
@@ -64,7 +64,7 @@ export default function SignIn() {
           <Text style={styles.tagline}>Your health records, your control</Text>
 
           <Segmented options={MODES} value={mode} onChange={switchMode} />
-          {mode === "abha" && <Text style={styles.hint}>Government-verified login. We send an OTP to the mobile linked to your ABHA.</Text>}
+          {mode !== "email" && <Text style={styles.hint}>We'll send a sign-in code to the email on your account.</Text>}
 
           <TextInput
             style={styles.input}
@@ -83,12 +83,12 @@ export default function SignIn() {
           )}
           {otpSent && (
             <>
-              <Text style={styles.hint}>OTP sent to {otpSent.sent_to}.{otpSent.dev_otp ? ` (Demo OTP: ${otpSent.dev_otp})` : ""}</Text>
-              <TextInput style={styles.input} placeholder="6-digit OTP" placeholderTextColor="#6e7891" keyboardType="number-pad" maxLength={6}
+              <Text style={styles.hint}>Code sent to {otpSent.sent_to}.{otpSent.dev_otp ? ` (Demo OTP: ${otpSent.dev_otp})` : ""}</Text>
+              <TextInput style={styles.input} placeholder="6-digit code" placeholderTextColor="#6e7891" keyboardType="number-pad" maxLength={6}
                 autoComplete="sms-otp" textContentType="oneTimeCode"
                 value={otp} onChangeText={setOtp} onSubmitEditing={submit} accessibilityLabel="OTP" autoFocus />
               <Pressable onPress={() => { setOtpSent(null); setOtp(""); }}>
-                <Text style={styles.link}>Change number / resend</Text>
+                <Text style={styles.link}>Change / resend</Text>
               </Pressable>
             </>
           )}
@@ -97,8 +97,14 @@ export default function SignIn() {
           <Pressable style={[styles.button, (busy || !canSubmit) && styles.disabled]} disabled={busy || !canSubmit}
             onPress={submit} accessibilityRole="button">
             {busy ? <ActivityIndicator color="#fff" /> : (
-              <Text style={styles.buttonText}>{mode === "email" ? "Sign in" : otpSent ? "Verify & continue" : "Send OTP"}</Text>
+              <Text style={styles.buttonText}>{mode === "email" ? "Sign in" : otpSent ? "Verify & continue" : "Send code"}</Text>
             )}
+          </Pressable>
+          {mode === "email" && (
+            <Pressable onPress={() => router.push("/forgot-password")} style={styles.linkBtn} accessibilityRole="button"><Text style={styles.link}>Forgot password?</Text></Pressable>
+          )}
+          <Pressable onPress={() => router.push("/sign-up")} style={styles.linkBtn} accessibilityRole="button">
+            <Text style={styles.join}>New here? <Text style={styles.link}>Create account</Text></Text>
           </Pressable>
           <Link href="/emergency" style={styles.emergency}>Emergency card (works offline)</Link>
         </ScrollView>
@@ -121,6 +127,8 @@ const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 13 },
   input: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text },
   link: { color: colors.primary, fontWeight: "600" },
+  linkBtn: { minHeight: 44, alignItems: "center", justifyContent: "center" },
+  join: { color: colors.text, fontSize: 15 },
   error: { color: colors.danger },
   button: { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 16, alignItems: "center", marginTop: 8 },
   disabled: { opacity: 0.5 },

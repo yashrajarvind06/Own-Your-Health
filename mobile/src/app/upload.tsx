@@ -1,4 +1,4 @@
-import { createElement, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
@@ -6,25 +6,11 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/lib/session";
 import { colors } from "@/lib/theme";
+import DateField from "@/components/DateField";
 import { Group, Muted, Row, ui } from "@/components/ui";
 
 type Picked = { uri: string; name: string; mimeType: string; file?: File };
 const today = () => new Date().toISOString().slice(0, 10);
-
-/** Date field: the browser's own date picker on web, a YYYY-MM-DD field on native. */
-function DateField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  if (Platform.OS === "web") {
-    return createElement("input", {
-      type: "date", value, max: today(), "aria-label": "Visit or report date",
-      onChange: (e: any) => onChange(e.target.value),
-      style: { border: 0, background: "transparent", fontSize: 17, color: colors.text, fontFamily: "inherit", padding: 0 },
-    });
-  }
-  return (
-    <TextInput value={value} onChangeText={onChange} placeholder="YYYY-MM-DD" placeholderTextColor="#6e7891" style={styles.inline}
-      keyboardType="numbers-and-punctuation" maxLength={10} accessibilityLabel="Visit or report date" />
-  );
-}
 
 /** Add a record (presented as a sheet): document, type, date, optional one-line summary. */
 export default function Upload() {
@@ -118,7 +104,7 @@ export default function Upload() {
 
       <Group label="Details" footer="We read values like BP and sugar from the document automatically.">
         <Row title="Type" onPress={() => setTypeOpen(true)} right={<Text style={styles.value}>{recordType ?? "Detect automatically"} ›</Text>} />
-        <Row title="Date" last right={<DateField value={recordDate} onChange={setRecordDate} />} />
+        <Row title="Date" last right={<DateField value={recordDate} onChange={setRecordDate} label="Visit or report date" style={styles.inline} />} />
       </Group>
 
       <Group label="Short summary (optional)" footer="If you leave this empty, we write a one-line summary from the document.">

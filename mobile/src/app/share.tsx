@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Image, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/lib/session";
@@ -12,7 +12,8 @@ type Link = { id: number; token: string; report_count: number; note: string | nu
 
 const DURATIONS = [{ key: "1h", label: "1 hour" }, { key: "1d", label: "1 day" }, { key: "7d", label: "7 days" }];
 // The backend serves the app, so the share page lives on the same address as the API
-const shareUrl = (token: string) => `${API_BASE}/s/${token}`;
+// On web the app's own address is permanent (Pages); the backend's may be a temporary tunnel
+const shareUrl = (token: string) => `${Platform.OS === "web" ? window.location.origin : API_BASE}/s/${token}`;
 const local = (iso: string) => new Date(iso + "Z").toLocaleString();
 
 /** docx: give doctors access to chosen records via a secured link or QR, limited by time and number of reports. */

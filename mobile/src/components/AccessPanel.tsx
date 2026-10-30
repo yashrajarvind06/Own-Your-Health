@@ -1,6 +1,6 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/lib/session";
 import { colors, purposeLabel } from "@/lib/theme";
@@ -59,6 +59,15 @@ export default function AccessPanel({ patientId, header }: { patientId?: number;
   }, [request, q]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // The new-request popup's "Review" lands here with ?review=<id>: open that request's review sheet
+  const { review } = useLocalSearchParams<{ review?: string }>();
+  useEffect(() => {
+    const p = review && pending.find((x) => String(x.id) === review);
+    if (!p) return;
+    setTab("requests"); setReviewing(p); setDuration("1h"); setSelected([]);
+    router.setParams({ review: undefined });
+  }, [review, pending]);
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);

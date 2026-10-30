@@ -64,6 +64,37 @@ from app.services.report_extraction import extract_bp
 check("BP from 'a/b' form", extract_bp("bp 130/85 mmhg") == (130, 85))
 check("BP from separate systolic/diastolic lines", extract_bp("systolic bp: 168 mmhg diastolic bp: 102 mmhg") == (168, 102))
 
+# --- new-user sign-up and password reset -------------------------------------
+su_email = f"signup.{uuid.uuid4().hex[:8]}@example.com"
+su = {"display_name": "Sign Up Test", "phone": new_phone(), "email": su_email, "password": "correct-horse-1",
+      "date_of_birth": "1994-03-12", "gender": "Female"}
+st, _ = call("/auth/signup", {**su, "password": "short"})
+check("sign-up rejects a short password", st == 422, _)
+st, _ = call("/auth/signup", {**su, "date_of_birth": "2999-01-01"})
+check("sign-up rejects a future birth date", st == 422, _)
+st, sent = call("/auth/signup", su)
+check("sign-up emails a code first and creates nothing yet", st == 200 and "dev_otp" in sent and call("/auth/login", {"email": su_email, "password": su["password"]})[0] == 401, sent)
+st, _ = call("/auth/signup", {**su, "code": "000000"})
+check("sign-up rejects a wrong code", st == 400, _)
+st, tok = call("/auth/signup", {**su, "code": sent["dev_otp"]})
+check("sign-up creates the patient", st == 200 and tok["role"] == "patient", tok)
+st, prof = call("/user/me/profile", token=tok["access_token"])
+check("new account's mobile is not marked verified by an email code", st == 200 and prof["phone"] == su["phone"] and not prof["phone_verified"], prof)
+st, sm = call("/reports/summary", token=tok["access_token"])
+check("sign-up keeps name and gender for the snapshot", st == 200 and sm["name"] == "Sign Up Test" and sm["gender"] == "Female", sm)
+st, _ = call("/auth/signup", su)
+check("sign-up refuses a duplicate email", st == 409, _)
+st, _ = call("/auth/signup", {**su, "email": "x" + su_email})
+check("sign-up refuses a duplicate mobile", st == 409, _)
+st, _ = call("/auth/password/forgot", {"email": "nobody." + su_email})
+check("password reset doesn't reveal unknown emails", st == 200, _)
+st, sent = call("/auth/password/forgot", {"email": su_email.upper()})
+st, _ = call("/auth/password/reset", {"email": su_email, "code": "000000", "new_password": "new-password-1"})
+check("password reset rejects a wrong code", st == 400, _)
+st, _ = call("/auth/password/reset", {"email": su_email, "code": sent["dev_otp"], "new_password": "new-password-1"})
+check("password reset works, old password stops", st == 200 and call("/auth/login", {"email": su_email, "password": su["password"]})[0] == 401
+      and call("/auth/login", {"email": su_email.upper(), "password": "new-password-1"})[0] == 200, _)
+
 # --- patient verification: mobile OTP + ABHA ---------------------------------
 g_phone = new_phone()
 g = otp_login(phone=g_phone)

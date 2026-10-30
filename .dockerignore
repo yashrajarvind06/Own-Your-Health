@@ -13,3 +13,4 @@ graphify-out
 .claude
 .agents
 ~
+mobile/.env

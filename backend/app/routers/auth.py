@@ -1,17 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from ..database import SessionLocal
-from ..models import User, PatientProfile
+from ..models import EmergencyQRProfile, User, PatientProfile
 from ..schemas import RegisterRequest, LoginRequest, TokenResponse, PatientProfileUpdate, PatientProfileResponse, UserResponse
 from ..auth import get_password_hash, verify_password, create_access_token, get_current_user
 from ..services.registry import REGISTRY_BY_ROLE, verify_user
 import secrets
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 
-from ..services.otp import check_otp, normalize_phone, send_otp
+from ..services import email as mailer
+from ..services.otp import DEV_ECHO, check_otp, normalize_phone, real_email, send_email_otp, send_otp
 from ..services.registry import abha_lookup, normalize_abha
 
 router = APIRouter()
@@ -53,7 +55,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     NOTE: Swagger UI's 'Authorize' button sends form-data, which will fail here with 422.
     Please use 'curl' or Postman with JSON body to test this endpoint.
     """
-    user = db.query(User).filter(User.email == body.email).first()
+    user = db.query(User).filter(func.lower(User.email) == body.email.lower()).first()
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token({"sub": str(user.id), "role": user.role})
@@ -124,10 +126,15 @@ def _otp_target(body: OtpRequest) -> tuple[str, dict | None]:
     return normalize_phone(body.phone), None
 
 
+def _login_user(db: Session, phone: str, abha: dict | None, abha_number: str | None) -> User | None:
+    return (abha and db.query(User).filter(User.abha_number == normalize_abha(abha_number)).first()) \
+        or db.query(User).filter(User.phone == phone).first()
+
+
 @router.post("/otp/request")
 def otp_request(body: OtpRequest, db: Session = Depends(get_db)):
-    phone, _ = _otp_target(body)
-    return send_otp(db, phone, "LOGIN")
+    phone, abha = _otp_target(body)
+    return send_otp(db, phone, "LOGIN", email=real_email(_login_user(db, phone, abha, body.abha_number)))
 
 
 @router.post("/otp/verify", response_model=TokenResponse)
@@ -137,8 +144,7 @@ def otp_verify(body: OtpVerify, db: Session = Depends(get_db)):
     check_otp(db, phone, "LOGIN", body.code)
     abha_number = normalize_abha(body.abha_number) if abha else None
 
-    user = (abha_number and db.query(User).filter(User.abha_number == abha_number).first()) \
-        or db.query(User).filter(User.phone == phone).first()
+    user = _login_user(db, phone, abha, body.abha_number)
     if user and user.role != "patient":
         raise HTTPException(status_code=403, detail="OTP login is for patients only")
     if not user:
@@ -152,9 +158,81 @@ def otp_verify(body: OtpVerify, db: Session = Depends(get_db)):
         db.flush()
         db.add(PatientProfile(user_id=user.id))
     user.phone = user.phone or phone
-    user.phone_verified_at = user.phone_verified_at or datetime.utcnow()
+    if DEV_ECHO and not mailer.enabled():  # an emailed code proves the email, not the phone
+        user.phone_verified_at = user.phone_verified_at or datetime.utcnow()
     if abha:
         user.abha_number, user.abha_address, user.abha_verified_at = abha_number, abha["abha_address"], datetime.utcnow()
     db.commit()
     token = create_access_token({"sub": str(user.id), "role": user.role})
     return TokenResponse(access_token=token, role=user.role, user_id=user.id)
+
+
+class SignupBody(BaseModel):
+    """Two calls, same body: without `code` it checks the details and emails a code; with `code` it creates the account."""
+    display_name: str = Field(min_length=2, max_length=255)
+    phone: str
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=72)  # bcrypt ignores anything past 72 bytes
+    date_of_birth: Optional[str] = None  # YYYY-MM-DD
+    gender: Optional[Literal["Female", "Male", "Other"]] = None
+    code: Optional[str] = None
+
+
+@router.post("/signup")
+def signup(body: SignupBody, db: Session = Depends(get_db)):
+    """New patient: basics first; the profile can be completed now or later."""
+    email, phone, name = body.email.lower(), normalize_phone(body.phone), body.display_name.strip()
+    if body.date_of_birth:
+        try:
+            born = datetime.strptime(body.date_of_birth, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Enter your date of birth as YYYY-MM-DD")
+        if born > datetime.utcnow():
+            raise HTTPException(status_code=422, detail="Date of birth can't be in the future")
+    if db.query(User).filter(func.lower(User.email) == email).first():
+        raise HTTPException(status_code=409, detail="This email already has an account. Sign in instead.")
+    if db.query(User).filter(User.phone == phone).first():
+        raise HTTPException(status_code=409, detail="This mobile number already has an account. Sign in instead.")
+    if not body.code:
+        return send_email_otp(db, email, "SIGNUP")
+    check_otp(db, email, "SIGNUP", body.code)
+    user = User(email=email, hashed_password=get_password_hash(body.password), role="patient", display_name=name, phone=phone)
+    db.add(user)
+    db.flush()
+    db.add(PatientProfile(user_id=user.id))
+    db.add(EmergencyQRProfile(patient_id=user.id, name=name, phone=phone, date_of_birth=body.date_of_birth, gender=body.gender))
+    db.commit()
+    token = create_access_token({"sub": str(user.id), "role": user.role})
+    return TokenResponse(access_token=token, role=user.role, user_id=user.id)
+
+
+class ForgotBody(BaseModel):
+    email: EmailStr
+
+
+class ResetBody(ForgotBody):
+    code: str
+    new_password: str = Field(min_length=8, max_length=72)
+
+
+@router.post("/password/forgot")
+def password_forgot(body: ForgotBody, db: Session = Depends(get_db)):
+    """Same answer whether or not the account exists, so it can't be used to discover who has one."""
+    email = body.email.lower()
+    user = db.query(User).filter(func.lower(User.email) == email).first()
+    out = {"sent": True}
+    if user:
+        out.update(send_email_otp(db, email, "RESET"))
+    return out
+
+
+@router.post("/password/reset")
+def password_reset(body: ResetBody, db: Session = Depends(get_db)):
+    email = body.email.lower()
+    check_otp(db, email, "RESET", body.code)
+    user = db.query(User).filter(func.lower(User.email) == email).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="OTP expired or not requested. Request a new one.")
+    user.hashed_password = get_password_hash(body.new_password)
+    db.commit()
+    return {"reset": True}

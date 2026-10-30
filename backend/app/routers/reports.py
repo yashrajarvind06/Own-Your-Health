@@ -109,6 +109,16 @@ def my_reports(background: BackgroundTasks, patient_id: Optional[int] = None, us
     return out
 
 
+@router.get("/{report_id}/file")
+def report_file(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """A fresh signed link to the owner's file (list links expire after 5 minutes)."""
+    r = db.get(MedicalReport, report_id)
+    if not r or r.deleted_at:
+        raise HTTPException(status_code=404, detail="Report not found")
+    acting_patient(db, user, r.patient_id if r.patient_id != user.id else None, "VIEW_RECORDS")
+    return {"url": file_url(r.file_key)}
+
+
 @router.post("/{report_id}/summarize")
 def resummarize(report_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """'Rewrite summary': regenerate the AI one-liner and details now (owner or VIEW_RECORDS delegate)."""

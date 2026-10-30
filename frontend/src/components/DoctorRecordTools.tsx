@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, fileUrl } from "../api";
 import { Button } from "./ui/Button";
 import { MessageSquare, CheckCircle2, X } from "lucide-react";
 
@@ -179,7 +179,7 @@ export function CompareModal({ items, onClose }: { items: CompareItem[]; onClose
     const [urls, setUrls] = useState<Record<number, string>>({});
     useEffect(() => {
         api("/reports/access", { method: "POST", body: JSON.stringify({ report_ids: items.map(i => i.id) }) })
-            .then((res: { id: number; url: string }[]) => setUrls(Object.fromEntries(res.map(r => [r.id, r.url]))))
+            .then((res: { id: number; url: string }[]) => setUrls(Object.fromEntries(res.map(r => [r.id, fileUrl(r.url)]))))
             .catch(() => {});
     }, [items]);
 

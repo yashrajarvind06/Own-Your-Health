@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -6,7 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/lib/session";
 import { colors, purposeLabel } from "@/lib/theme";
-import AlertsCard from "@/components/AlertsCard";
+import { AlertBanner, LiveAccess, NotificationsSheet, type AlertItem, type LiveSession } from "@/components/HomeLive";
 import SummaryCard, { type Summary } from "@/components/SummaryCard";
 import { Muted, ui, WIDE } from "@/components/ui";
 
@@ -33,6 +33,8 @@ const PROMISES: { icon: Icon; title: string; text: string }[] = [
 ];
 
 type Pending = { id: number; doctor_name: string | null; access_reason: string | null; doctor_trust?: { score: number; hospital: string | null } };
+// Same fields as the Complete your profile screen, in the order the reminder asks for them
+const PROFILE_FIELDS = [["blood_group", "blood group"], ["allergies", "allergies"], ["chronic_diseases", "conditions"], ["medications", "medicines"], ["emergency_contact", "emergency contact"]] as const;
 type Rec = { id: number; record_type: string; record_date: string; one_line_summary: string };
 
 const greeting = () => {
@@ -49,11 +51,14 @@ function SectionHead({ title, action, onPress }: { title: string; action?: strin
   );
 }
 
-/** "Book Appointment" in the reference becomes the doctor-scan QR (it expires, so it's made on demand). */
-function QrCard({ onOpen }: { onOpen: () => void }) {
+/** "Book Appointment" in the reference becomes the doctor-scan QR (it expires, so it's made on demand).
+ *  While a doctor has access, the whole card switches to who is viewing and what they can see. */
+function QrCard({ onOpen, live }: { onOpen: () => void; live: LiveSession[] }) {
   return (
     <LinearGradient colors={["#0b57d0", "#1a73e8"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
       <View style={styles.heroBlob} />
+      {live.length > 0 ? <LiveAccess sessions={live} /> : (
+      <View style={styles.heroRow}>
       <View style={{ flex: 1, gap: 6 }}>
         <Text style={styles.heroTitle}>My Health QR</Text>
         <Text style={styles.heroText}>Show it to your doctor. You approve what they see.</Text>
@@ -65,6 +70,8 @@ function QrCard({ onOpen }: { onOpen: () => void }) {
       <Pressable style={styles.heroQr} onPress={onOpen} accessibilityLabel="Generate my QR code">
         <Ionicons name="qr-code" size={52} color={colors.primary} />
       </Pressable>
+      </View>
+      )}
     </LinearGradient>
   );
 }
@@ -133,23 +140,53 @@ export default function Home() {
   const [latest, setLatest] = useState<Rec | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [insights, setInsights] = useState<{ enabled: boolean; alerts: string[] } | null>(null);
-  const [alertCount, setAlertCount] = useState(0);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [live, setLive] = useState<LiveSession[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [banner, setBanner] = useState<AlertItem | null>(null);
+  const bannered = useRef(new Set<number>()); // pop each alert up once per app session
   const [allServices, setAllServices] = useState(false);
   const [fullSnapshot, setFullSnapshot] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [missing, setMissing] = useState<string[]>([]);
 
   useFocusEffect(useCallback(() => {
+    request<Record<string, string | null>>("/auth/me/profile")
+      .then((p) => setMissing(PROFILE_FIELDS.filter(([k]) => !p[k]?.trim()).map(([, label]) => label))).catch(() => {});
     request<{ display_name: string | null }>("/user/me/profile").then((p) => setName(p.display_name)).catch(() => {});
-    request<Pending[]>("/access/requests/pending").then(setPending).catch(() => {});
     request<Rec[]>("/reports/my").then((r) => setLatest(r[0] ?? null)).catch(() => {});
     request<Summary>("/reports/summary").then(setSummary).catch(() => {});
     request<{ enabled: boolean; alerts: string[] }>("/reports/insights").then(setInsights).catch(() => {});
-    request<{ seen: boolean }[]>("/alerts").then((a) => setAlertCount(a.filter((x) => !x.seen).length)).catch(() => {});
   }, [request]));
+
+  // Live data: refreshed every 15 s while Home is open, so new access and misuse alerts show up on their own
+  const poll = useCallback(() => {
+    request<Pending[]>("/access/requests/pending").then(setPending).catch(() => {});
+    request<LiveSession[]>("/access/patient/active").then(setLive).catch(() => {});
+    request<AlertItem[]>("/alerts").then((a) => {
+      setAlerts(a);
+      const fresh = a.find((x) => !x.seen && !bannered.current.has(x.id));
+      if (fresh) { bannered.current.add(fresh.id); setBanner(fresh); }
+    }).catch(() => {});
+  }, [request]);
+  useFocusEffect(useCallback(() => {
+    poll();
+    const t = setInterval(poll, 15000);
+    return () => clearInterval(t);
+  }, [poll]));
+
+  const openNotifications = () => {
+    setBanner(null);
+    setNotifOpen(true);
+    const unseen = alerts.filter((a) => !a.seen);
+    setAlerts((all) => all.map((a) => ({ ...a, seen: true })));
+    unseen.forEach((a) => request(`/alerts/${a.id}/seen`, { method: "POST", body: "{}" }).catch(() => {}));
+  };
+  const dismissBanner = useCallback(() => setBanner(null), []);
 
   const firstName = (name ?? "").split(" ")[0];
   const services = allServices ? SERVICES : SERVICES.slice(0, 4);
-  const attention = alertCount + pending.length;
+  const attention = alerts.filter((a) => !a.seen).length + pending.length;
 
   const header = (
     <>
@@ -159,9 +196,10 @@ export default function Home() {
           <Text style={styles.big}>Take care of{"\n"}your <Text style={{ color: colors.primary }}>health.</Text></Text>
         </View>
         <View style={{ alignItems: "flex-end", gap: 10 }}>
-          <Pressable style={styles.bell} onPress={() => router.push("/access")} accessibilityLabel={`${attention} items need attention`}>
-            <Ionicons name="notifications-outline" size={20} color={colors.text} />
-            {attention > 0 && <View style={styles.dot} />}
+          <Pressable style={styles.bell} onPress={openNotifications} accessibilityRole="button"
+            accessibilityLabel={attention ? `Notifications, ${attention} new` : "Notifications"}>
+            <Ionicons name={attention ? "notifications" : "notifications-outline"} size={20} color={attention ? colors.primary : colors.text} />
+            {attention > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{attention > 9 ? "9+" : attention}</Text></View>}
           </Pressable>
           <LinearGradient colors={["#e3f0ff", "#bcd8fb"]} style={styles.avatar}>
             <Ionicons name="medical" size={40} color={colors.primary} />
@@ -179,7 +217,18 @@ export default function Home() {
   const leftCol = (
     <View style={{ gap: 4 }}>
       {header}
-      <QrCard onOpen={() => setQrOpen(true)} />
+      {missing.length > 0 && (
+        <Pressable style={styles.nudge} onPress={() => router.push("/complete-profile")} accessibilityRole="button"
+          accessibilityLabel={`Complete your profile, ${PROFILE_FIELDS.length - missing.length} of ${PROFILE_FIELDS.length} done`}>
+          <View style={{ flex: 1, gap: 5 }}>
+            <Text style={styles.cardTitle}>Complete your profile</Text>
+            <View style={styles.nudgeTrack}><View style={[styles.nudgeBar, { width: `${((PROFILE_FIELDS.length - missing.length) / PROFILE_FIELDS.length) * 100}%` }]} /></View>
+            <Text style={styles.cardMeta}>{PROFILE_FIELDS.length - missing.length} of {PROFILE_FIELDS.length} done · Add your {missing[0]}</Text>
+          </View>
+          <Text style={styles.secLink}>Finish ›</Text>
+        </Pressable>
+      )}
+      <QrCard onOpen={() => setQrOpen(true)} live={live} />
       <SectionHead title="Our Services" action={allServices ? "Show less" : "View all"} onPress={() => setAllServices(!allServices)} />
       <View style={styles.services}>
         {services.map((s) => (
@@ -259,8 +308,8 @@ export default function Home() {
   );
 
   return (
+    <View style={ui.screen}>
     <ScrollView style={ui.screen} contentContainerStyle={[ui.content, { paddingTop: insets.top + 12 }]}>
-      <AlertsCard />
       {wide ? (
         <View style={styles.columns}>
           <View style={{ flex: 3 }}>{leftCol}</View>
@@ -270,7 +319,10 @@ export default function Home() {
         <>{leftCol}{rightCol}</>
       )}
       <QrSheet visible={qrOpen} onClose={() => setQrOpen(false)} />
+      <NotificationsSheet visible={notifOpen} onClose={() => setNotifOpen(false)} alerts={alerts} pending={pending} />
     </ScrollView>
+    <AlertBanner alert={banner} onOpen={openNotifications} onDismiss={dismissBanner} top={insets.top} />
+    </View>
   );
 }
 
@@ -281,18 +333,23 @@ const styles = StyleSheet.create({
   hello: { color: colors.muted, fontSize: 15 },
   big: { fontSize: 28, lineHeight: 34, fontWeight: "800", color: colors.text, marginTop: 4 },
   bell: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
-  dot: { position: "absolute", top: 8, right: 10, width: 10, height: 10, borderRadius: 5, backgroundColor: "#e53935", borderWidth: 2, borderColor: "#fff" },
+  badge: { position: "absolute", top: -4, right: -4, minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, backgroundColor: "#e53935", borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center" },
+  badgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   avatar: { width: 84, height: 84, borderRadius: 42, alignItems: "center", justifyContent: "center" },
   search: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border, paddingLeft: 14, marginTop: 16, ...soft },
   searchText: { flex: 1, color: "#6e7891", fontSize: 15, paddingVertical: 14 },
   searchBadge: { width: 46, alignSelf: "stretch", alignItems: "center", justifyContent: "center", borderLeftWidth: 1, borderLeftColor: colors.border },
-  hero: { marginTop: 18, borderRadius: 22, padding: 20, flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden" },
+  hero: { marginTop: 18, borderRadius: 22, padding: 20, overflow: "hidden" },
+  heroRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   heroBlob: { position: "absolute", right: -40, bottom: -60, width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.13)" },
   heroTitle: { color: "#fff", fontSize: 20, fontWeight: "800" },
   heroText: { color: "#ffffff", fontSize: 15, lineHeight: 20, maxWidth: 240 },
   heroBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, marginTop: 8 },
   heroBtnText: { color: colors.primary, fontWeight: "700" },
   heroQr: { width: 96, height: 96, borderRadius: 20, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", ...soft },
+  nudge: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14, marginTop: 14 },
+  nudgeTrack: { height: 6, borderRadius: 3, backgroundColor: "#e3e8f0", overflow: "hidden" },
+  nudgeBar: { height: 6, borderRadius: 3, backgroundColor: colors.primary },
   secHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 10 },
   secTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
   secLink: { color: colors.primary, fontWeight: "600" },

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { api } from "../api";
+import { api, fileUrl } from "../api";
 import { Button } from "./ui/Button";
 import { Lock, FileText, XCircle, Clock, Timer, Ban } from "lucide-react";
 import { ACCESS_PURPOSES } from "../purposes";
@@ -158,16 +158,19 @@ export default function DoctorReportList({ patientId, sessionId, showSummary = t
     };
 
     const openReport = async (reportId: number) => {
+        // Open the tab now, inside the tap: phone browsers block window.open after an await
+        const tab = window.open("", "_blank");
         try {
             const res = await api("/reports/access", {
                 method: "POST",
                 body: JSON.stringify({ report_ids: [reportId] })
             });
-            if (res && res[0]?.url) {
-                window.open(res[0].url, "_blank");
-            }
+            if (!res?.[0]?.url) throw new Error("no url");
+            if (tab) tab.location.href = fileUrl(res[0].url);
+            else window.location.href = fileUrl(res[0].url);
         } catch (e: any) {
-            alert("Failed to open report");
+            tab?.close();
+            alert("Couldn't open this report. Your access may have ended.");
         }
     };
 
