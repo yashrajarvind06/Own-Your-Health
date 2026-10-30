@@ -1,9 +1,10 @@
 """Permanent backend: Supabase (database, file storage) + Render (API + patient PWA, runs the Dockerfile).
 
 Safe to re-run: it reuses what already exists. Reads tokens from backend/.env.deploy (gitignored) and the
-Gemini key from backend/.env; generated values are written back to .env.deploy. Never prints a secret.
+Gemini key from backend/.env or the environment; generated values are written back to .env.deploy. Never prints a secret.
 Run from the repo root: backend\\venv\\Scripts\\python.exe scripts\\deploy_cloud.py
 """
+import os
 import secrets
 import sys
 import time
@@ -25,7 +26,7 @@ cfg = dotenv_values(ENV_FILE)
 missing = [k for k in ("RENDER_API_KEY", "SUPABASE_TOKEN", "BREVO_API_KEY", "EMAIL_FROM") if not cfg.get(k)]
 if missing:
     sys.exit(f"Fill these in {ENV_FILE}: {', '.join(missing)}")
-gemini = dotenv_values(ROOT / "backend" / ".env").get("GEMINI_API_KEY", "")
+gemini = dotenv_values(ROOT / "backend" / ".env").get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY", "")
 
 
 def remember(key, value):
