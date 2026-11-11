@@ -21,7 +21,7 @@ def extract_text_from_image(file_path: str) -> str:
         img.draft("L", (OCR_MAX_SIDE, OCR_MAX_SIDE))  # JPEG: decode straight at reduced size, saves most of the memory
         img = img.convert("L")
         img.thumbnail((OCR_MAX_SIDE, OCR_MAX_SIDE))  # a 12 MP phone photo needs ~10x the RAM and time for no better text
-        text = pytesseract.image_to_string(img, config=TESSERACT_CONFIG)
+        text = pytesseract.image_to_string(img, config=TESSERACT_CONFIG, nice=10)  # low priority: live requests go first
         return text.strip()
     except Exception:
         return ""
@@ -51,7 +51,7 @@ def extract_text_from_pdf(file_path: str) -> str:
             for img in images:
                 text += pytesseract.image_to_string(
                     img,
-                    config=TESSERACT_CONFIG,
+                    config=TESSERACT_CONFIG, nice=10,
                 )
         except Exception:
             return ""

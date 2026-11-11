@@ -1,4 +1,5 @@
 """Short-lived signed URLs for locally stored files (the local stand-in for S3 presigned URLs)."""
+import functools
 import hashlib
 import hmac
 import os
@@ -21,6 +22,7 @@ def signed_url(key: str, ttl: int = TTL_SECONDS) -> str:
     return f"/api/files/{quote(key)}?exp={exp}&sig={_sig(key, exp)}"
 
 
+@functools.lru_cache(maxsize=1)  # building a boto3 client costs ~1s on the free server; env is fixed per process
 def get_s3():
     key, secret, bucket = os.getenv("AWS_ACCESS_KEY_ID"), os.getenv("AWS_SECRET_ACCESS_KEY"), os.getenv("S3_BUCKET")
     if not key or not secret or not bucket:
