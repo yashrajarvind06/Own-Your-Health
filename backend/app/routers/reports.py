@@ -14,7 +14,7 @@ from app.services.file_urls import file_url
 from app.services.log_service import LogService
 from app.services.registry import normalize_abha
 from app.services.assistant import answer as assistant_answer
-from app.services.records import RECORD_TYPES, health_insights, patient_summary, queue_summaries, serialize, store_report, summarize_report
+from app.services.records import RECORD_TYPES, health_insights, patient_summary, queue_summaries, serialize, start_processing, store_report, summarize_report
 from app.services.report_access_service import ReportAccessService
 from app.services.misuse import record_denied_doctor_access, record_doctor_access
 
@@ -58,7 +58,7 @@ def upload_report(
     note = log_on_behalf(db, user, link, "upload_report")
     rec = store_report(db, patient_id=target, uploader=user, uploaded_by="PATIENT", file=file, record_type=record_type,
                        record_date=record_date, summary=summary, report_id=report_id, on_behalf_note=note)
-    queue_summaries(db, background, [rec])
+    start_processing(db, background, rec)
     return serialize(rec)
 
 
@@ -93,7 +93,7 @@ def upload_report_by_provider(
     rec = store_report(db, patient_id=patient_id, uploader=user, uploaded_by=user.role.upper(), file=file,
                        record_type=record_type or ("Lab Report" if user.role == "lab" else None),
                        record_date=record_date, summary=summary, report_id=report_id)
-    queue_summaries(db, background, [rec])
+    start_processing(db, background, rec)
     return serialize(rec, with_url=False)
 
 

@@ -12,11 +12,15 @@ if os.name == "nt":
 POPPLER_PATH = r"C:\poppler\Library\bin" if os.name == "nt" else None
 
 TESSERACT_CONFIG = "--oem 3 --psm 6"
+OCR_MAX_SIDE = 2000
 
 
 def extract_text_from_image(file_path: str) -> str:
     try:
         img = Image.open(file_path)
+        img.draft("L", (OCR_MAX_SIDE, OCR_MAX_SIDE))  # JPEG: decode straight at reduced size, saves most of the memory
+        img = img.convert("L")
+        img.thumbnail((OCR_MAX_SIDE, OCR_MAX_SIDE))  # a 12 MP phone photo needs ~10x the RAM and time for no better text
         text = pytesseract.image_to_string(img, config=TESSERACT_CONFIG)
         return text.strip()
     except Exception:
@@ -41,6 +45,7 @@ def extract_text_from_pdf(file_path: str) -> str:
             images = convert_from_path(
                 file_path,
                 poppler_path=POPPLER_PATH,
+                dpi=150, first_page=1, last_page=3,  # memory: the first pages carry the results
             )
 
             for img in images:
@@ -165,7 +170,6 @@ def extract_structured_data(cleaned_text: str) -> dict[str, int | None]:
         "weight": extract_weight(cleaned_text),
         "temperature": extract_temperature(cleaned_text),
     }
-    print("FINAL STRUCTURED DATA:", data)
     return data
 
 
@@ -293,9 +297,6 @@ def generate_report_summary(raw_text: str, cleaned_text: str) -> tuple[str | Non
     report_type = detect_report_type(cleaned_text)
     condition = extract_condition(raw_text, cleaned_text, report_type)
     source = extract_source(raw_text, cleaned_text)
-    print("DEBUG → REPORT TYPE:", report_type)
-    print("DEBUG → CONDITION:", condition)
-    print("DEBUG → SOURCE:", source)
 
     if report_type == "PRESCRIPTION":
      return "Handwritten prescription", report_type, None, True
@@ -326,15 +327,11 @@ def extract_report_data(file_path: str, mime_type: str | None) -> dict[str, obje
     else:
         raw_text = extract_text_from_image(file_path)
 
-    print("OCR RAW TEXT:", raw_text)
     cleaned_text = clean_text(raw_text)
     structured = extract_structured_data(cleaned_text)
     summary, report_type, condition, is_handwritten = generate_report_summary(raw_text, cleaned_text)
     report_date_str = extract_report_date(raw_text)
     report_date = parse_date(report_date_str) if report_date_str else None
-    print("STRUCTURED DATA:", structured)
-    print("OCR DATE:", report_date_str)
-    print("PARSED DATE:", report_date)
 
     return {
         "raw_text": raw_text[:10000].strip(),

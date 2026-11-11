@@ -1,4 +1,5 @@
 """Shared record logic: storing uploads, trust badges, relevance decay, one-line and profile summaries."""
+import threading
 import uuid
 from datetime import date, datetime, timedelta
 from hashlib import sha256
@@ -143,11 +144,6 @@ def store_report(
     if s3:
         s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=file.content_type)
 
-    try:
-        ocr = extract_report_data(str(path), file.content_type)
-    except Exception as e:  # extraction is optional (docx): keep the document even if OCR fails
-        print(f"OCR failed for {key}: {e!r}")
-        ocr = {"raw_text": "", "summary": None}
     report_id = (report_id or "").strip() or f"REC-{uuid.uuid4().hex[:8].upper()}"
     rec = MedicalReport(
         patient_id=patient_id,
@@ -157,14 +153,11 @@ def store_report(
         sha256_hash=digest,
         report_id=report_id,
         blockchain_tx=store_hash_on_chain(digest, report_id) or "",
-        extracted_text=ocr["raw_text"],
-        summary=ocr["summary"],
         user_summary=(summary or "").strip() or None,
         uploaded_by=uploaded_by,
         uploaded_by_user_id=uploader.id,
-        record_type=record_type or _OCR_TYPE.get(ocr.get("report_type"), "Other"),
-        report_date=datetime.combine(record_date, datetime.min.time()) if record_date else ocr.get("report_date"),
-        **{k: ocr.get(k) for k in ("bp_systolic", "bp_diastolic", "heart_rate", "glucose", "weight", "temperature")},
+        record_type=record_type,  # None = detect from the document, filled in by process_new_report
+        report_date=datetime.combine(record_date, datetime.min.time()) if record_date else None,
     )
     db.add(rec)
     db.add(AuditLog(actor_user_id=uploader.id, patient_id=patient_id,
@@ -311,9 +304,10 @@ def summarize_reports_bg(report_ids: list[int]) -> None:
     db = SessionLocal()
     try:
         for report_id in report_ids:
-            r = db.get(MedicalReport, report_id)
-            if r and r.ai_status == "PENDING":
-                summarize_report(db, r)
+            with _heavy:
+                r = db.get(MedicalReport, report_id)
+                if r and r.ai_status == "PENDING":
+                    summarize_report(db, r)
     finally:
         db.close()
 
@@ -329,3 +323,46 @@ def queue_summaries(db: Session, background, reports: list[MedicalReport], limit
     db.commit()
     if todo:
         background.add_task(summarize_reports_bg, [r.id for r in todo])
+
+
+_heavy = threading.Lock()  # OCR and AI one upload at a time: the free server has 512 MB
+
+
+def _ocr(db: Session, r: MedicalReport) -> None:
+    """Read the document: text, vitals, and the type/date when the uploader didn't give them."""
+    try:
+        ocr = extract_report_data(str(Path("storage") / r.file_key), r.mime_type)
+    except Exception as e:  # extraction is optional (docx): keep the document even if OCR fails
+        print(f"OCR failed for report {r.id}: {type(e).__name__}")
+        ocr = {"raw_text": "", "summary": None}
+    r.extracted_text, r.summary = ocr["raw_text"], ocr["summary"]
+    r.record_type = r.record_type or _OCR_TYPE.get(ocr.get("report_type"), "Other")
+    r.report_date = r.report_date or ocr.get("report_date")
+    for k in ("bp_systolic", "bp_diastolic", "heart_rate", "glucose", "weight", "temperature"):
+        setattr(r, k, ocr.get(k))
+    db.commit()
+
+
+def process_new_report(report_id: int) -> None:
+    """Background task after an upload: OCR, then the AI summary. Own DB session."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        with _heavy:
+            r = db.get(MedicalReport, report_id)
+            if not r:
+                return
+            _ocr(db, r)
+            if r.ai_status == "PENDING":
+                summarize_report(db, r)
+    finally:
+        db.close()
+
+
+def start_processing(db: Session, background, rec: MedicalReport) -> None:
+    """Called by the upload endpoints: reply now, read the document after the response."""
+    from app.services import ai
+    if ai.enabled():
+        rec.ai_status = "PENDING"
+        db.commit()
+    background.add_task(process_new_report, rec.id)
