@@ -14,6 +14,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from .database import Base, engine, get_db
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+# Supabase publishes the public schema through its own REST API (roles anon/authenticated). Only this backend may
+# touch the data: RLS on every table with no policies blocks those roles, while the table owner (the backend's
+# login) bypasses RLS. Runs on every start so new tables are never exposed. No-op where those roles don't exist.
+LOCK_DOWN_PUBLIC_TABLES = """
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', r.tablename);
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+    REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated;
+  END IF;
+END $$;
+"""
 from fastapi import Depends
 from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, doctors
 from .routers import auth, qr, access, emergency, reports, logs, users, patient_history, patient_report_log, report_access, emergency_qr, family, fhir, alerts, share, health_summary
@@ -101,6 +122,12 @@ def create_app() -> FastAPI:
         except Exception as mig_err:
             print(f"WARNING: Migration step failed (might already exist): {mig_err}")
         # --- AUTO MIGRATION END ---
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(LOCK_DOWN_PUBLIC_TABLES))
+            print("SUCCESS: public tables locked to the backend (RLS on, no API-role grants).")
+        except Exception as lock_err:
+            print(f"ERROR: could not lock down public tables, data may be exposed: {lock_err}")
 
     except Exception as e:
         print(f"Warning: Database tables may already exist. Startup continued. Error: {e}")
