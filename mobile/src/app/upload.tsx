@@ -5,6 +5,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/lib/session";
+import { shrinkImage } from "@/lib/shrinkImage";
 import { colors } from "@/lib/theme";
 import DateField from "@/components/DateField";
 import { Group, Muted, Row, ui } from "@/components/ui";
@@ -55,7 +56,8 @@ export default function Upload() {
     try {
       const form = new FormData();
       // web gives a real File; native needs the {uri, name, type} descriptor
-      form.append("file", Platform.OS === "web" && picked.file ? picked.file : ({ uri: picked.uri, name: picked.name, type: picked.mimeType } as any));
+      // shortcut: native builds send the photo full size; add expo-image-manipulator if a native build ships
+      form.append("file", Platform.OS === "web" && picked.file ? await shrinkImage(picked.file) : ({ uri: picked.uri, name: picked.name, type: picked.mimeType } as any));
       form.append("record_date", recordDate);
       if (recordType) form.append("record_type", recordType);
       if (summary.trim()) form.append("summary", summary.trim());
