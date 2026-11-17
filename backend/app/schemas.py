@@ -55,6 +55,7 @@ class UserProfileResponse(BaseModel):
     abha_address: Optional[str] = None
     abha_verified: bool = False
     health_alerts_enabled: bool = False
+    onboarded: bool = True
 
 class LinkRegistryRequest(BaseModel):
     registry_id: str

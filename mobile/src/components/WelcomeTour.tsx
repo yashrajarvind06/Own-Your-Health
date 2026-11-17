@@ -2,24 +2,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { seenFlag } from "@/lib/seen";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/lib/theme";
 import { WIDE } from "@/components/ui";
 import { AiPreview, ConsentPreview, DecayPreview, EmergencyPreview, MisusePreview, SharePreview } from "@/components/TourPreviews";
 
 type Icon = keyof typeof Ionicons.glyphMap;
-const KEY = "oyh_tour_seen_v1";
-
-const seenStore = seenFlag(KEY);
-
-/** True until the tour has been finished or skipped once on this device. */
-export function useFirstRunTour() {
-  const [show, setShow] = useState(false);
-  useEffect(() => { seenStore.get().then((v) => setShow(!v)).catch(() => {}); }, []);
-  return [show, setShow] as const;
-}
-
 
 type Slide = { icon: Icon; color: string; tint: string; eyebrow: string; title: string; body: string; cta?: { label: string; href: string }; preview: ReactNode };
 
@@ -68,7 +56,8 @@ const SLIDES: Slide[] = [
 ];
 
 /** "Get to know OwnYourHealth": a full-screen tour, shown once after sign-in and again from Profile. */
-export default function WelcomeTour({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+/** `onClose(true)` when the user left through a "try it" link to another screen. */
+export default function WelcomeTour({ visible, onClose }: { visible: boolean; onClose: (leftForLink?: boolean) => void }) {
   const [i, setI] = useState(0);
   const insets = useSafeAreaInsets();
   const wide = useWindowDimensions().width >= WIDE;
@@ -77,8 +66,7 @@ export default function WelcomeTour({ visible, onClose }: { visible: boolean; on
   const last = i === SLIDES.length - 1;
 
   const close = (href?: string) => {
-    seenStore.set().catch(() => {});
-    onClose();
+    onClose(!!href);
     if (href) router.push(href as any);
   };
 

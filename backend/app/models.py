@@ -21,6 +21,7 @@ class User(Base):
     abha_address = Column(String(100), nullable=True)
     abha_verified_at = Column(DateTime, nullable=True)
     health_alerts_enabled = Column(Boolean, nullable=False, default=False)
+    onboarded_at = Column(DateTime, nullable=True)  # set once the user has finished the welcome tour and Home tips
     created_at = Column(DateTime, default=datetime.utcnow)
     profile = relationship("PatientProfile", back_populates="user", uselist=False)
 

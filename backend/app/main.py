@@ -63,6 +63,10 @@ def create_app() -> FastAPI:
                             "abha_verified_at TIMESTAMP", "health_alerts_enabled BOOLEAN DEFAULT FALSE NOT NULL"):
                     conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col}"))
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_phone ON users (phone)"))
+                fresh = not conn.execute(text("SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='onboarded_at'")).first()
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMP"))
+                if fresh:  # accounts from before the welcome tour existed don't get it; only new sign-ups do
+                    conn.execute(text("UPDATE users SET onboarded_at = now()"))
                 conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_abha ON users (abha_number)"))
                 for col in ("uploaded_by_user_id INTEGER REFERENCES users(id)", "record_type VARCHAR(50)", "user_summary VARCHAR(280)", "weight INTEGER",
                             "temperature VARCHAR(10)", "reviewed_by INTEGER REFERENCES users(id)", "reviewed_at TIMESTAMP", "deleted_at TIMESTAMP"):

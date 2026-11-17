@@ -37,7 +37,17 @@ def get_user_profile(
         "abha_address": current_user.abha_address,
         "abha_verified": current_user.abha_verified_at is not None,
         "health_alerts_enabled": current_user.health_alerts_enabled,
+        "onboarded": current_user.onboarded_at is not None,
     }
+
+
+@router.post("/me/onboarded")
+def mark_onboarded(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The welcome tour and Home tips are shown once per account, until this is called."""
+    if not current_user.onboarded_at:
+        current_user.onboarded_at = datetime.utcnow()
+        db.commit()
+    return {"onboarded": True}
 
 
 class AbhaLinkRequest(BaseModel):
