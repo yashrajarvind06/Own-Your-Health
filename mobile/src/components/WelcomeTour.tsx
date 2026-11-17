@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AccessibilityInfo, Animated, Easing, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -61,23 +61,65 @@ export default function WelcomeTour({ visible, onClose }: { visible: boolean; on
   const [i, setI] = useState(0);
   const insets = useSafeAreaInsets();
   const wide = useWindowDimensions().width >= WIDE;
-  useEffect(() => { if (visible) setI(0); }, [visible]);
   const s = SLIDES[i];
+
+  // Motion: the screen eases in as a short cascade (header, progress, example, text, buttons),
+  // and each slide change glides in from the side you're heading. Reduce Motion keeps only the fades.
+  const enter = useRef(new Animated.Value(0)).current;
+  const swap = useRef(new Animated.Value(1)).current;
+  const dir = useRef(1);
+  const [still, setStill] = useState(false);
+  useEffect(() => { AccessibilityInfo.isReduceMotionEnabled().then(setStill).catch(() => {}); }, []);
+  const native = Platform.OS !== "web";
+  useEffect(() => {
+    if (!visible) return;
+    setI(0);
+    enter.setValue(0); swap.setValue(1);
+    Animated.timing(enter, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: native }).start();
+  }, [visible, enter, swap, native]);
+
+  const go = (n: number) => {
+    if (n === i) return;
+    dir.current = n > i ? 1 : -1;
+    setI(n);
+    swap.setValue(0);
+    Animated.timing(swap, { toValue: 1, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: native }).start();
+  };
+
+  const move = still ? 0 : 1;
+  const rise = (from: number, to: number, dy = 18) => ({
+    opacity: enter.interpolate({ inputRange: [from, to], outputRange: [0, 1], extrapolate: "clamp" }),
+    transform: [{ translateY: enter.interpolate({ inputRange: [from, to], outputRange: [dy * move, 0], extrapolate: "clamp" }) }],
+  });
+  const glide = (dx: number) => ({
+    opacity: swap,
+    transform: [{ translateX: swap.interpolate({ inputRange: [0, 1], outputRange: [dir.current * dx * move, 0] }) }],
+  });
   const last = i === SLIDES.length - 1;
 
+  // Fade the tour out before handing over, so Home and the tips never appear on top of it
+  const exit = useRef(new Animated.Value(1)).current;
+  const closing = useRef(false);
+  useEffect(() => { if (visible) { exit.setValue(1); closing.current = false; } }, [visible, exit]);
   const close = (href?: string) => {
-    onClose(!!href);
-    if (href) router.push(href as any);
+    if (closing.current) return;
+    closing.current = true;
+    Animated.timing(exit, { toValue: 0, duration: 260, easing: Easing.in(Easing.cubic), useNativeDriver: native }).start(() => {
+      onClose(!!href);
+      if (href) router.push(href as any);
+    });
   };
 
   const stage = (
-    <View style={[st.stage, { backgroundColor: s.tint }, wide && st.stageWide]}>
-      <View style={[st.previewBox, wide && { transform: [{ scale: 1.2 }] }]}>{s.preview}</View>
-    </View>
+    <Animated.View style={[st.stage, { backgroundColor: s.tint }, wide && st.stageWide, rise(0.2, 0.75, 28)]}>
+      <Animated.View style={glide(36)}>
+        <View style={[st.previewBox, wide && { transform: [{ scale: 1.2 }] }]}>{s.preview}</View>
+      </Animated.View>
+    </Animated.View>
   );
 
   const copy = (
-    <View style={[st.copy, wide && st.copyWide]}>
+    <Animated.View style={[st.copy, wide && st.copyWide, rise(0.35, 0.9), glide(56)]}>
       <View style={st.eyebrowRow}>
         <View style={[st.eyebrowIcon, { backgroundColor: s.tint }]}><Ionicons name={s.icon} size={16} color={s.color} /></View>
         <Text style={[st.eyebrow, { color: s.color }]}>{s.eyebrow}</Text>
@@ -90,14 +132,14 @@ export default function WelcomeTour({ visible, onClose }: { visible: boolean; on
           <Ionicons name="arrow-forward" size={16} color={s.color} />
         </Pressable>
       )}
-    </View>
+    </Animated.View>
   );
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => close()}>
-      <View style={[st.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]} accessibilityViewIsModal>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => close()}>
+      <Animated.View style={[st.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16, opacity: exit }]} accessibilityViewIsModal>
         <View style={st.inner}>
-          <View>
+          <Animated.View style={rise(0, 0.5)}>
             <View style={st.header}>
               <Text style={[st.kicker, { flex: 1 }]}>Get to know your app</Text>
               <Pressable onPress={() => close()} hitSlop={10} accessibilityRole="button" style={st.skip}>
@@ -105,31 +147,31 @@ export default function WelcomeTour({ visible, onClose }: { visible: boolean; on
               </Pressable>
             </View>
             <Text style={[st.headTitle, wide && { fontSize: 38, lineHeight: 44 }]} accessibilityRole="header">How OwnYourHealth works</Text>
-          </View>
+          </Animated.View>
 
-          <View style={st.progress} accessibilityLabel={`Step ${i + 1} of ${SLIDES.length}`}>
+          <Animated.View style={[st.progress, rise(0.1, 0.6, 8)]} accessibilityLabel={`Step ${i + 1} of ${SLIDES.length}`}>
             {SLIDES.map((x, n) => (
-              <Pressable key={x.eyebrow} onPress={() => setI(n)} style={st.segHit} accessibilityRole="button" accessibilityLabel={`Go to ${x.eyebrow}`}>
+              <Pressable key={x.eyebrow} onPress={() => go(n)} style={st.segHit} accessibilityRole="button" accessibilityLabel={`Go to ${x.eyebrow}`}>
                 <View style={[st.seg, n <= i && { backgroundColor: colors.primary }]} />
               </Pressable>
             ))}
-          </View>
+          </Animated.View>
 
           <ScrollView style={{ flex: 1 }} contentContainerStyle={[st.body2, wide && st.body2Wide]} showsVerticalScrollIndicator={false}>
             {stage}
             {copy}
           </ScrollView>
 
-          <View style={[st.actions, wide && { alignSelf: "flex-end", width: 420 }]}>
+          <Animated.View style={[st.actions, wide && { alignSelf: "flex-end", width: 420 }, rise(0.45, 1, 12)]}>
             {i > 0 ? (
-              <Pressable style={st.back} onPress={() => setI(i - 1)} accessibilityRole="button"><Text style={st.backText}>Back</Text></Pressable>
+              <Pressable style={st.back} onPress={() => go(i - 1)} accessibilityRole="button"><Text style={st.backText}>Back</Text></Pressable>
             ) : <View style={{ flex: 1 }} />}
-            <Pressable style={st.next} onPress={() => (last ? close() : setI(i + 1))} accessibilityRole="button">
+            <Pressable style={st.next} onPress={() => (last ? close() : go(i + 1))} accessibilityRole="button">
               <Text style={st.nextText}>{last ? "Get started" : "Continue"}</Text>
             </Pressable>
-          </View>
+          </Animated.View>
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

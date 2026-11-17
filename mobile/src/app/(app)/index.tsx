@@ -9,7 +9,6 @@ import { colors, purposeLabel } from "@/lib/theme";
 import { AlertBanner, LiveAccess, NotificationsSheet, type AlertItem, type LiveSession } from "@/components/HomeLive";
 import SummaryCard, { type Summary } from "@/components/SummaryCard";
 import { Muted, ui, WIDE } from "@/components/ui";
-import WelcomeTour from "@/components/WelcomeTour";
 import CoachMarks, { type CoachStep } from "@/components/CoachMarks";
 
 type ViewRef = ComponentRef<typeof View>;
@@ -153,10 +152,10 @@ export default function Home() {
   const [fullSnapshot, setFullSnapshot] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [missing, setMissing] = useState<string[]>([]);
-  // Once per account: welcome tour, then Home tips; the server remembers when both are done
-  const [onboarding, setOnboarding] = useState<"tour" | "tips" | null>(null);
-  const onboardingStarted = useRef(false);
-  const tipsAfterLink = useRef(false); // the tour's "try it" links leave Home; show the tips when the user comes back
+  // Once per account: Home tips for a new user; the server remembers when they're done.
+  // The full tour is only opened by choice, from Profile.
+  const [tipsOpen, setTipsOpen] = useState(false);
+  const tipsStarted = useRef(false);
   const uploadRef = useRef<ViewRef>(null), qrRef = useRef<ViewRef>(null), emergencyRef = useRef<ViewRef>(null), bellRef = useRef<ViewRef>(null), askRef = useRef<ViewRef>(null);
   const coachSteps: CoachStep[] = [
     { target: uploadRef, icon: "cloud-upload", title: "Upload your documents here", text: "Add a lab report, prescription or scan. We read it and write a one-line summary for you." },
@@ -165,12 +164,8 @@ export default function Home() {
     { target: bellRef, icon: "notifications", title: "Requests and alerts land here", text: "Doctor access requests and unusual-access alerts show up on this bell." },
     { target: askRef, icon: "sparkles", title: "Ask about your records", text: "Ask in plain words, like “What was my last sugar reading?”" },
   ];
-  const closeTour = (leftForLink?: boolean) => {
-    tipsAfterLink.current = !!leftForLink;
-    setOnboarding(leftForLink ? null : "tips");
-  };
   const closeTips = () => {
-    setOnboarding(null);
+    setTipsOpen(false);
     request("/user/me/onboarded", { method: "POST", body: "{}" }).catch(() => {});
   };
 
@@ -179,9 +174,9 @@ export default function Home() {
       .then((p) => setMissing(PROFILE_FIELDS.filter(([k]) => !p[k]?.trim()).map(([, label]) => label))).catch(() => {});
     request<{ display_name: string | null; onboarded: boolean }>("/user/me/profile").then((p) => {
       setName(p.display_name);
-      if (p.onboarded) return;
-      if (!onboardingStarted.current) { onboardingStarted.current = true; setOnboarding("tour"); }
-      else if (tipsAfterLink.current) { tipsAfterLink.current = false; setOnboarding("tips"); }
+      if (p.onboarded || tipsStarted.current) return;
+      tipsStarted.current = true;
+      setTimeout(() => setTipsOpen(true), 600); // let Home lay out first, so the tips can find their buttons
     }).catch(() => {});
     request<Rec[]>("/reports/my").then((r) => setLatest(r[0] ?? null)).catch(() => {});
     request<Summary>("/reports/summary").then(setSummary).catch(() => {});
@@ -349,8 +344,7 @@ export default function Home() {
       )}
       <QrSheet visible={qrOpen} onClose={() => setQrOpen(false)} />
       <NotificationsSheet visible={notifOpen} onClose={() => setNotifOpen(false)} alerts={alerts} pending={pending} />
-      <WelcomeTour visible={onboarding === "tour"} onClose={closeTour} />
-      <CoachMarks steps={coachSteps} visible={onboarding === "tips"} onClose={closeTips} />
+      <CoachMarks steps={coachSteps} visible={tipsOpen} onClose={closeTips} />
     </ScrollView>
     <AlertBanner alert={banner} onOpen={openNotifications} onDismiss={dismissBanner} top={insets.top} />
     </View>

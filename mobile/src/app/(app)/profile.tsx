@@ -83,6 +83,11 @@ export default function ProfileScreen() {
             </View>
           </View>
 
+          <Group label="Getting started">
+            <Row title="Get to know OwnYourHealth" subtitle="A one-minute tour of what the app does" left={<Icon name="compass" bg={colors.primary} />} onPress={() => setTourOpen(true)} last />
+          </Group>
+          <WelcomeTour visible={tourOpen} onClose={() => setTourOpen(false)} />
+
           <Group label="Identity" footer={profile.abha_verified ? "Your records are linked to your government health ID." : "Link your ABHA so doctors and hospitals know your records are really yours."}>
             {profile.abha_verified ? (
               <>
@@ -126,11 +131,6 @@ export default function ProfileScreen() {
             <Row title="Recently deleted" left={<Icon name="trash" bg="#78909c" />} onPress={() => router.push("/deleted")} />
             <Row title="Emergency card" left={<Icon name="medkit" bg={colors.danger} />} onPress={() => router.push("/emergency")} last />
           </Group>
-
-          <Group label="Help">
-            <Row title="Get to know OwnYourHealth" subtitle="A one-minute tour of what the app does" left={<Icon name="compass" bg={colors.primary} />} onPress={() => setTourOpen(true)} last />
-          </Group>
-          <WelcomeTour visible={tourOpen} onClose={() => setTourOpen(false)} />
 
           <Group>
             <Row title="Sign Out" destructive onPress={signOut} right={<View />} last />
