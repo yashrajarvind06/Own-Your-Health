@@ -9,6 +9,7 @@ import { colors, purposeLabel } from "@/lib/theme";
 import { AlertBanner, LiveAccess, NotificationsSheet, type AlertItem, type LiveSession } from "@/components/HomeLive";
 import SummaryCard, { type Summary } from "@/components/SummaryCard";
 import { Muted, ui, WIDE } from "@/components/ui";
+import WelcomeTour, { useFirstRunTour } from "@/components/WelcomeTour";
 
 type Icon = keyof typeof Ionicons.glyphMap;
 type Service = { label: string; sub: string; icon: Icon; tint: string; color: string; href: string };
@@ -149,6 +150,7 @@ export default function Home() {
   const [fullSnapshot, setFullSnapshot] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
   const [missing, setMissing] = useState<string[]>([]);
+  const [tourOpen, setTourOpen] = useFirstRunTour();
 
   useFocusEffect(useCallback(() => {
     request<Record<string, string | null>>("/auth/me/profile")
@@ -320,6 +322,7 @@ export default function Home() {
       )}
       <QrSheet visible={qrOpen} onClose={() => setQrOpen(false)} />
       <NotificationsSheet visible={notifOpen} onClose={() => setNotifOpen(false)} alerts={alerts} pending={pending} />
+      <WelcomeTour visible={tourOpen} onClose={() => setTourOpen(false)} />
     </ScrollView>
     <AlertBanner alert={banner} onOpen={openNotifications} onDismiss={dismissBanner} top={insets.top} />
     </View>

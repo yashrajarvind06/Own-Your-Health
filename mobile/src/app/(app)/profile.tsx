@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSession } from "@/lib/session";
 import { colors } from "@/lib/theme";
 import { Button, Group, LargeTitle, Muted, Row, ui } from "@/components/ui";
+import WelcomeTour from "@/components/WelcomeTour";
 
 type Profile = {
   id: number; display_name: string | null; email: string; phone: string | null; phone_verified: boolean;
@@ -20,6 +21,7 @@ export default function ProfileScreen() {
   const { request, signOut } = useSession();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [family, setFamily] = useState({ helpers: 0, caring: 0 });
+  const [tourOpen, setTourOpen] = useState(false);
   const [abha, setAbha] = useState("");
   const [otp, setOtp] = useState("");
   const [otpInfo, setOtpInfo] = useState<{ sent_to: string; dev_otp?: string } | null>(null);
@@ -124,6 +126,11 @@ export default function ProfileScreen() {
             <Row title="Recently deleted" left={<Icon name="trash" bg="#78909c" />} onPress={() => router.push("/deleted")} />
             <Row title="Emergency card" left={<Icon name="medkit" bg={colors.danger} />} onPress={() => router.push("/emergency")} last />
           </Group>
+
+          <Group label="Help">
+            <Row title="Get to know OwnYourHealth" subtitle="A one-minute tour of what the app does" left={<Icon name="compass" bg={colors.primary} />} onPress={() => setTourOpen(true)} last />
+          </Group>
+          <WelcomeTour visible={tourOpen} onClose={() => setTourOpen(false)} />
 
           <Group>
             <Row title="Sign Out" destructive onPress={signOut} right={<View />} last />
