@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from "react";
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +10,11 @@ import { AlertBanner, LiveAccess, NotificationsSheet, type AlertItem, type LiveS
 import SummaryCard, { type Summary } from "@/components/SummaryCard";
 import { Muted, ui, WIDE } from "@/components/ui";
 import WelcomeTour, { useFirstRunTour } from "@/components/WelcomeTour";
+import CoachMarks, { type CoachStep } from "@/components/CoachMarks";
+import { seenFlag } from "@/lib/seen";
+
+const coachSeen = seenFlag("oyh_coach_seen_v1");
+type ViewRef = ComponentRef<typeof View>;
 
 type Icon = keyof typeof Ionicons.glyphMap;
 type Service = { label: string; sub: string; icon: Icon; tint: string; color: string; href: string };
@@ -151,6 +156,17 @@ export default function Home() {
   const [qrOpen, setQrOpen] = useState(false);
   const [missing, setMissing] = useState<string[]>([]);
   const [tourOpen, setTourOpen] = useFirstRunTour();
+  const [coachOpen, setCoachOpen] = useState(false);
+  const uploadRef = useRef<ViewRef>(null), qrRef = useRef<ViewRef>(null), emergencyRef = useRef<ViewRef>(null), bellRef = useRef<ViewRef>(null), askRef = useRef<ViewRef>(null);
+  const coachSteps: CoachStep[] = [
+    { target: uploadRef, icon: "cloud-upload", title: "Upload your documents here", text: "Add a lab report, prescription or scan. We read it and write a one-line summary for you." },
+    { target: qrRef, icon: "qr-code", title: "Generate your QR here", text: "Show it to your doctor. They send a request, and nothing is shared until you approve." },
+    { target: emergencyRef, icon: "medkit", title: "Set up your emergency card", text: "Add your blood group, allergies and who to call, so responders can help you." },
+    { target: bellRef, icon: "notifications", title: "Requests and alerts land here", text: "Doctor access requests and unusual-access alerts show up on this bell." },
+    { target: askRef, icon: "sparkles", title: "Ask about your records", text: "Ask in plain words, like “What was my last sugar reading?”" },
+  ];
+  const closeTour = () => { setTourOpen(false); coachSeen.get().then((v) => { if (!v) setCoachOpen(true); }).catch(() => {}); };
+  const closeCoach = () => { setCoachOpen(false); coachSeen.set().catch(() => {}); };
 
   useFocusEffect(useCallback(() => {
     request<Record<string, string | null>>("/auth/me/profile")
@@ -198,7 +214,7 @@ export default function Home() {
           <Text style={styles.big}>Take care of{"\n"}your <Text style={{ color: colors.primary }}>health.</Text></Text>
         </View>
         <View style={{ alignItems: "flex-end", gap: 10 }}>
-          <Pressable style={styles.bell} onPress={openNotifications} accessibilityRole="button"
+          <Pressable ref={bellRef} style={styles.bell} onPress={openNotifications} accessibilityRole="button"
             accessibilityLabel={attention ? `Notifications, ${attention} new` : "Notifications"}>
             <Ionicons name={attention ? "notifications" : "notifications-outline"} size={20} color={attention ? colors.primary : colors.text} />
             {attention > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{attention > 9 ? "9+" : attention}</Text></View>}
@@ -208,7 +224,7 @@ export default function Home() {
           </LinearGradient>
         </View>
       </View>
-      <Pressable style={styles.search} onPress={() => router.push("/assistant")} accessibilityRole="search">
+      <Pressable ref={askRef} style={styles.search} onPress={() => router.push("/assistant")} accessibilityRole="search">
         <Ionicons name="search" size={18} color="#6e7891" />
         <Text style={styles.searchText}>Ask about your records…</Text>
         <View style={styles.searchBadge}><Ionicons name="sparkles" size={16} color={colors.primary} /></View>
@@ -230,11 +246,11 @@ export default function Home() {
           <Text style={styles.secLink}>Finish ›</Text>
         </Pressable>
       )}
-      <QrCard onOpen={() => setQrOpen(true)} live={live} />
+      <View ref={qrRef} collapsable={false}><QrCard onOpen={() => setQrOpen(true)} live={live} /></View>
       <SectionHead title="Our Services" action={allServices ? "Show less" : "View all"} onPress={() => setAllServices(!allServices)} />
       <View style={styles.services}>
         {services.map((s) => (
-          <Pressable key={s.href} style={styles.svc} onPress={() => router.push(s.href as any)} accessibilityRole="button" accessibilityLabel={s.label}>
+          <Pressable key={s.href} ref={s.href === "/upload" ? uploadRef : s.href === "/emergency" ? emergencyRef : undefined} style={styles.svc} onPress={() => router.push(s.href as any)} accessibilityRole="button" accessibilityLabel={s.label}>
             <View style={[styles.svcIcon, { backgroundColor: s.tint }]}><Ionicons name={s.icon} size={22} color={s.color} /></View>
             <Text style={styles.svcLabel}>{s.label}</Text>
             <Text style={styles.svcSub}>{s.sub}</Text>
@@ -322,7 +338,8 @@ export default function Home() {
       )}
       <QrSheet visible={qrOpen} onClose={() => setQrOpen(false)} />
       <NotificationsSheet visible={notifOpen} onClose={() => setNotifOpen(false)} alerts={alerts} pending={pending} />
-      <WelcomeTour visible={tourOpen} onClose={() => setTourOpen(false)} />
+      <WelcomeTour visible={tourOpen} onClose={closeTour} />
+      <CoachMarks steps={coachSteps} visible={coachOpen} onClose={closeCoach} />
     </ScrollView>
     <AlertBanner alert={banner} onOpen={openNotifications} onDismiss={dismissBanner} top={insets.top} />
     </View>

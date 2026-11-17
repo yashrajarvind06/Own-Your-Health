@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import * as SecureStore from "expo-secure-store";
+import { seenFlag } from "@/lib/seen";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/lib/theme";
 import { WIDE } from "@/components/ui";
@@ -11,10 +11,7 @@ import { AiPreview, ConsentPreview, DecayPreview, EmergencyPreview, MisusePrevie
 type Icon = keyof typeof Ionicons.glyphMap;
 const KEY = "oyh_tour_seen_v1";
 
-// Same split as lib/session: SecureStore is native-only, web uses localStorage
-const seenStore = Platform.OS === "web"
-  ? { get: async () => { try { return localStorage.getItem(KEY); } catch { return "1"; } }, set: async () => { try { localStorage.setItem(KEY, "1"); } catch {} } }
-  : { get: () => SecureStore.getItemAsync(KEY), set: () => SecureStore.setItemAsync(KEY, "1") };
+const seenStore = seenFlag(KEY);
 
 /** True until the tour has been finished or skipped once on this device. */
 export function useFirstRunTour() {
@@ -97,7 +94,7 @@ export default function WelcomeTour({ visible, onClose }: { visible: boolean; on
         <View style={[st.eyebrowIcon, { backgroundColor: s.tint }]}><Ionicons name={s.icon} size={16} color={s.color} /></View>
         <Text style={[st.eyebrow, { color: s.color }]}>{s.eyebrow}</Text>
       </View>
-      <Text style={[st.title, wide && { fontSize: 36, lineHeight: 42 }]} accessibilityRole="header">{s.title}</Text>
+      <Text style={[st.title, wide && { fontSize: 32, lineHeight: 38 }]}>{s.title}</Text>
       <Text style={st.body}>{s.body}</Text>
       {s.cta && (
         <Pressable onPress={() => close(s.cta!.href)} accessibilityRole="link" hitSlop={6} style={st.ctaRow}>
@@ -112,15 +109,14 @@ export default function WelcomeTour({ visible, onClose }: { visible: boolean; on
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => close()}>
       <View style={[st.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]} accessibilityViewIsModal>
         <View style={st.inner}>
-          <View style={st.header}>
-            <Image source={require("../../assets/logo-mark.png")} style={st.logo} accessibilityLabel="OwnYourHealth logo" />
-            <View style={{ flex: 1 }}>
-              <Text style={st.brand}>Own<Text style={{ color: colors.primary }}>Your</Text>Health</Text>
-              <Text style={st.tagline}>Your health records, your control</Text>
+          <View>
+            <View style={st.header}>
+              <Text style={[st.kicker, { flex: 1 }]}>Get to know your app</Text>
+              <Pressable onPress={() => close()} hitSlop={10} accessibilityRole="button" style={st.skip}>
+                <Text style={st.skipText}>Skip</Text>
+              </Pressable>
             </View>
-            <Pressable onPress={() => close()} hitSlop={10} accessibilityRole="button" style={st.skip}>
-              <Text style={st.skipText}>Skip</Text>
-            </Pressable>
+            <Text style={[st.headTitle, wide && { fontSize: 38, lineHeight: 44 }]} accessibilityRole="header">How OwnYourHealth works</Text>
           </View>
 
           <View style={st.progress} accessibilityLabel={`Step ${i + 1} of ${SLIDES.length}`}>
@@ -154,9 +150,8 @@ const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 20 },
   inner: { flex: 1, width: "100%", maxWidth: 1040, alignSelf: "center", gap: 18 },
   header: { flexDirection: "row", alignItems: "center", gap: 12 },
-  logo: { width: 40, height: 40 },
-  brand: { fontSize: 18, fontWeight: "800", color: colors.text, letterSpacing: -0.2 },
-  tagline: { fontSize: 13, color: colors.muted },
+  kicker: { fontSize: 14, fontWeight: "700", color: colors.primary, textTransform: "uppercase", letterSpacing: 0.8 },
+  headTitle: { fontSize: 30, lineHeight: 36, fontWeight: "800", color: colors.text, letterSpacing: -0.5 },
   skip: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
   skipText: { color: colors.primary, fontWeight: "600", fontSize: 16 },
   progress: { flexDirection: "row", gap: 6 },
@@ -172,7 +167,7 @@ const st = StyleSheet.create({
   eyebrowRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   eyebrowIcon: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   eyebrow: { fontSize: 13, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  title: { fontSize: 30, lineHeight: 36, fontWeight: "800", color: colors.text, letterSpacing: -0.4 },
+  title: { fontSize: 26, lineHeight: 32, fontWeight: "800", color: colors.text, letterSpacing: -0.3 },
   body: { fontSize: 17, lineHeight: 25, color: colors.muted, maxWidth: 520 },
   ctaRow: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, alignSelf: "flex-start" },
   cta: { fontWeight: "700", fontSize: 16 },
