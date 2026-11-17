@@ -83,16 +83,20 @@ def send_otp(db: Session, phone: str, purpose: str, email: str | None = None) ->
 
 
 def check_otp(db: Session, phone: str, purpose: str, code: str) -> None:
-    """Consume the latest live code for this phone+purpose, or raise 400."""
-    otp = db.query(OtpCode).filter(
+    """Accept any live code for this phone+purpose (emails can arrive out of order after a resend), or raise 400."""
+    live = db.query(OtpCode).filter(
         OtpCode.phone == phone, OtpCode.purpose == purpose,
         OtpCode.consumed_at.is_(None), OtpCode.expires_at > datetime.utcnow(),
-    ).order_by(OtpCode.created_at.desc()).first()
-    if not otp or otp.attempts >= MAX_ATTEMPTS:
+    ).all()
+    # every wrong guess counts against all live codes, so resending never buys extra guesses
+    if not live or max(o.attempts for o in live) >= MAX_ATTEMPTS:
         raise HTTPException(status_code=400, detail="OTP expired or not requested. Request a new one.")
-    otp.attempts += 1
-    if not verify_password((code or "").strip(), otp.code_hash):
-        db.commit()
-        raise HTTPException(status_code=400, detail="Incorrect OTP")
-    otp.consumed_at = datetime.utcnow()
+    match = next((o for o in live if verify_password((code or "").strip(), o.code_hash)), None)
+    now = datetime.utcnow()
+    for o in live:
+        o.attempts += 1
+        if match:
+            o.consumed_at = now  # one success uses up every outstanding code
     db.commit()
+    if not match:
+        raise HTTPException(status_code=400, detail="Incorrect OTP")
