@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/lib/theme";
@@ -17,14 +17,18 @@ export default function CoachMarks({ steps, visible, onClose }: { steps: CoachSt
   const [i, setI] = useState(0);
   const [box, setBox] = useState<Box | null>(null);
 
-  const measure = useCallback((n: number) => {
-    const node = steps[n]?.target.current;
+  // The parent rebuilds `steps` on every render (Home refreshes every 15 s), so read it through a ref:
+  // depending on it directly restarted the tips at tip 1 mid-way through.
+  const stepsRef = useRef(steps);
+  stepsRef.current = steps;
+
+  useEffect(() => { if (visible) setI(0); }, [visible]);
+  useEffect(() => {
+    if (!visible) return;
+    const node = stepsRef.current[i]?.target.current;
     if (!node) return setBox(null);
     node.measureInWindow((x, y, w, h) => setBox(w && h ? { x: x - PAD, y: y - PAD, w: w + PAD * 2, h: h + PAD * 2 } : null));
-  }, [steps]);
-
-  useEffect(() => { if (visible) { setI(0); measure(0); } }, [visible, measure]);
-  useEffect(() => { if (visible) measure(i); }, [i, W, H, visible, measure]);
+  }, [i, W, H, visible]);
 
   if (!visible) return null;
   const s = steps[i];
